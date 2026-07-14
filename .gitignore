@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Local environment
+.env
+.env.*
+*.log
+.DS_Store
+
+# Superpowers design/spec workspace files
+docs/superpowers/
