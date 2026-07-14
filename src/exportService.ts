@@ -1,5 +1,6 @@
 import { cp, lstat, mkdir, rm, symlink } from "fs/promises";
 import { join } from "path";
+import { createSkillEvent } from "./events";
 import { SkillRegistry } from "./registry";
 import type { InstallMethod, SkillRecord } from "./types";
 
@@ -101,7 +102,11 @@ export class SkillExportService {
           : await installByCopy(source, destination);
         summary[result].push(record.id);
 
-        if (result !== "skipped") this.registry.incrementInstall(record.id, new Date().toISOString());
+        if (result !== "skipped") {
+          const timestamp = new Date().toISOString();
+          this.registry.incrementInstall(record.id, timestamp);
+          this.registry.recordEvent(createSkillEvent("skill_installed", record.id, { method: options.method }, timestamp));
+        }
       } catch (error) {
         summary.failed.push({ skillId: record.id, reason: formatInstallError(error, options.method) });
       }
