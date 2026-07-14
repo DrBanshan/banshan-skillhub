@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "child_process";
-import { mkdtemp } from "fs/promises";
+import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { promisify } from "util";
 
@@ -31,6 +31,11 @@ export async function runNpxSkillsAdd(command: string, cwd: string, execFile: Ex
   if (!validateNpxSkillsCommand(command)) throw new Error("Invalid npx skills command");
 
   const stagingPath = await mkdtemp(join(cwd, ".skillhub-npx-import-"));
-  await execFile("npx", parseCommand(command).slice(1), { cwd: stagingPath });
+  try {
+    await execFile("npx", parseCommand(command).slice(1), { cwd: stagingPath });
+  } catch (error) {
+    await rm(stagingPath, { force: true, recursive: true });
+    throw error;
+  }
   return stagingPath;
 }

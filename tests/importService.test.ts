@@ -117,4 +117,21 @@ describe("runNpxSkillsAdd", () => {
     expect(stagingPath.startsWith(cwd)).toBe(true);
     expect(calls).toEqual([{ file: "npx", args: ["skills", "add", "owner/repo"], cwd: stagingPath }]);
   });
+
+  it("removes the staging directory when npx rejects", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
+    temporaryDirectories.push(cwd);
+    let stagingPath: string | undefined;
+    const error = new Error("npx failed");
+
+    await expect(
+      runNpxSkillsAdd("npx skills add owner/repo", cwd, async (_file, _args, options) => {
+        stagingPath = options.cwd;
+        throw error;
+      })
+    ).rejects.toBe(error);
+
+    expect(stagingPath).toBeDefined();
+    await expect(access(stagingPath as string)).rejects.toThrow();
+  });
 });
