@@ -1,7 +1,16 @@
-import { Notice, Plugin } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { join } from "path";
+import { SkillExportService } from "./exportService";
+import { GitHubSkillDownloader, parseGitHubSkillUrl, type GitHubContentEntry } from "./githubImport";
+import { SkillImportService } from "./importService";
+import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { createEmptySkillHubData, SkillRegistry } from "./registry";
-import { DEFAULT_SETTINGS } from "./settings";
-import type { SkillHubData } from "./types";
+import { DEFAULT_SETTINGS, SkillHubSettingTab } from "./settings";
+import { discoverSkills, type DiscoveredSkill } from "./skillDiscovery";
+import type { SkillHubData, SkillRecord, SkillSource } from "./types";
+import { InstallResultModal, SkillSelectionModal, TextInputModal } from "./ui/modals";
+import { SkillHubView, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
 
 export default class SkillHubPlugin extends Plugin {
   data: SkillHubData = createEmptySkillHubData();
@@ -18,11 +27,156 @@ export default class SkillHubPlugin extends Plugin {
     this.registry = new SkillRegistry(this.data);
 
     this.addRibbonIcon("blocks", "Open Skill Hub", () => {
-      new Notice("Skill Hub scaffold loaded");
+      void this.openSkillHub();
     });
+    this.addCommand({ id: "open-skill-hub", name: "Open Skill Hub", callback: () => void this.openSkillHub() });
+    this.addCommand({ id: "import-skills-from-github", name: "Import skills from GitHub", callback: () => void this.openGitHubImport() });
+    this.addCommand({ id: "scan-local-skill-directory", name: "Scan local skill directory", callback: () => void this.openLocalScan() });
+    this.addCommand({ id: "install-selected-skills", name: "Install selected skills", callback: () => void this.installSelectedSkills() });
+    this.addSettingTab(new SkillHubSettingTab(this.app, this));
+    this.registerView(VIEW_TYPE_SKILL_HUB, (leaf) => new SkillHubView(leaf, this));
   }
 
   async saveSkillHubData(): Promise<void> {
     await this.saveData(this.registry.data);
+  }
+
+  async openSkillHub(): Promise<SkillHubView> {
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_SKILL_HUB)[0] ?? this.app.workspace.getLeaf(true);
+    await leaf.setViewState({ type: VIEW_TYPE_SKILL_HUB, active: true });
+    this.app.workspace.revealLeaf(leaf);
+    return leaf.view as SkillHubView;
+  }
+
+  async openGitHubImport(): Promise<void> {
+    (await this.openSkillHub()).openGitHubImport();
+  }
+
+  async openLocalScan(): Promise<void> {
+    (await this.openSkillHub()).openLocalScan();
+  }
+
+  async installSelectedSkills(): Promise<void> {
+    (await this.openSkillHub()).installSelectedSkills();
+  }
+
+  async importFromGitHub(url: string): Promise<void> {
+    try {
+      const location = parseGitHubSkillUrl(url);
+      const downloader = new GitHubSkillDownloader({
+        fetchJson: async (path) => {
+          const response = await requestUrl({ url: `https://api.github.com${path}` });
+          return { status: response.status, data: response.json as GitHubContentEntry[] };
+        },
+        downloadFile: async (downloadUrl, destination) => {
+          const response = await requestUrl({ url: downloadUrl });
+          await writeFile(destination, Buffer.from(response.arrayBuffer));
+        }
+      });
+      const folders = await downloader.listSkillFolders(location);
+      if (folders.length === 0) throw new Error("No skill folders were found.");
+      new SkillSelectionModal(this.app, folders.map((folder) => ({ id: folder, label: folder, value: folder })), async (selected) => {
+        if (selected.length === 0) return;
+        const stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
+        for (const folder of selected) await downloader.downloadSkillFolder(location, folder, stagingPath);
+        const discovered = await discoverSkills(stagingPath);
+        await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
+      }).open();
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  async importFromLocalDirectory(path: string): Promise<void> {
+    try {
+      const discovered = await discoverSkills(path);
+      if (discovered.missingSkillsFolder) throw new Error("No skills folder was found in the selected directory.");
+      await this.openImportSelection(discovered.skills, { type: "local", path }, "local");
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  async importFromNpx(command: string): Promise<void> {
+    if (!validateNpxSkillsCommand(command)) {
+      new Notice("Use an npx skills add command.");
+      return;
+    }
+    if (!this.data.settings.npxExecutionEnabled) {
+      new Notice("Enable npx execution in Skill Hub settings before running this command.");
+      return;
+    }
+    if (!(await isNpxAvailable())) {
+      new Notice("npx is not available. Run the command manually, then scan its output directory.");
+      return;
+    }
+
+    try {
+      const stagingPath = await runNpxSkillsAdd(command, this.getVaultBasePath());
+      const discovered = await discoverSkills(stagingPath);
+      await this.openImportSelection(discovered.skills, { type: "local", path: stagingPath }, "npx", stagingPath);
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  installSkills(records: SkillRecord[]): void {
+    new TextInputModal(this.app, "Install selected skills", "/path/to/project", "Install", async (targetDir) => {
+      try {
+        const summary = await new SkillExportService(this.registry).installSkills(records, targetDir, {
+          vaultPath: this.getVaultBasePath(),
+          method: this.data.settings.installMethod,
+          conflictBehavior: this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip"
+        });
+        await this.saveSkillHubData();
+        new InstallResultModal(this.app, summary).open();
+        this.refreshSkillHub();
+      } catch (error) {
+        this.showError(error);
+      }
+    }).open();
+  }
+
+  private async openImportSelection(
+    discovered: DiscoveredSkill[],
+    source: SkillSource,
+    importMethod: SkillRecord["importMethod"],
+    stagingPath?: string
+  ): Promise<void> {
+    if (discovered.length === 0) {
+      if (stagingPath) await rm(stagingPath, { force: true, recursive: true });
+      new Notice("No valid skills were found.");
+      return;
+    }
+    new SkillSelectionModal(this.app, discovered.map((skill) => ({ id: skill.folderName, label: skill.metadata.name, value: skill })), async (selected) => {
+      if (selected.length === 0) {
+        if (stagingPath) await rm(stagingPath, { force: true, recursive: true });
+        return;
+      }
+      const result = await new SkillImportService(this.registry, this.data.settings).importDiscoveredSkills(selected, {
+        vaultPath: this.getVaultBasePath(),
+        source,
+        importMethod,
+        stagingPath
+      });
+      await this.saveSkillHubData();
+      this.refreshSkillHub();
+      new Notice(`Imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"}.`);
+    }).open();
+  }
+
+  private getVaultBasePath(): string {
+    if (!(this.app.vault.adapter instanceof FileSystemAdapter)) throw new Error("Skill Hub requires a local vault.");
+    return this.app.vault.adapter.getBasePath();
+  }
+
+  private refreshSkillHub(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SKILL_HUB)) {
+      (leaf.view as SkillHubView).render();
+    }
+  }
+
+  private showError(error: unknown): void {
+    new Notice(error instanceof Error ? error.message : String(error));
   }
 }
