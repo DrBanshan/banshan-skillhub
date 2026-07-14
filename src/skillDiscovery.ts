@@ -39,7 +39,7 @@ export function resolveSkillsRoot(scanRoot: string): string {
 
 export function resolveSkillsRootCandidates(scanRoot: string): string[] {
   if (basename(scanRoot) === "skills") return [scanRoot];
-  return [join(scanRoot, ".agents", "skills"), join(scanRoot, "skills")];
+  return [join(scanRoot, "skills"), join(scanRoot, ".agents", "skills")];
 }
 
 export function parseSkillMarkdown(markdown: string, folderName: string): ParsedSkillMetadata {

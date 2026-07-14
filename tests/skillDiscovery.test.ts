@@ -25,6 +25,23 @@ describe("discoverSkills", () => {
     expect(result.skills.map((skill) => skill.folderName)).toEqual(["good-skill", "missing-description"]);
   });
 
+  it("prefers top-level skills over an empty .agents/skills folder", async () => {
+    const sourcePath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
+    const skillPath = join(sourcePath, "skills", "writer");
+    await mkdir(join(sourcePath, ".agents", "skills"), { recursive: true });
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, "SKILL.md"), "---\nname: Writer\ndescription: Writes\n---\n", "utf8");
+
+    try {
+      const result = await discoverSkills(sourcePath);
+
+      expect(result.missingSkillsFolder).toBe(false);
+      expect(result.skills.map((skill) => skill.folderName)).toEqual(["writer"]);
+    } finally {
+      await rm(sourcePath, { force: true, recursive: true });
+    }
+  });
+
   it("discovers npx output below .agents/skills", async () => {
     const stagingPath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
     const skillPath = join(stagingPath, ".agents", "skills", "writer");
