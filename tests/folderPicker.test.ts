@@ -1,29 +1,45 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { extractNativeFolderPath } from "../src/folderPicker";
 
 describe("extractNativeFolderPath", () => {
-  it("derives the selected directory from Electron's absolute file path", () => {
-    const files = [{
-      path: "/tmp/skills/writer/docs/guide.md",
-      webkitRelativePath: "writer/docs/guide.md"
-    }] as Array<File & { path: string }>;
+  const getPathForFile = vi.fn<(file: File) => string>();
+  const webUtils = { getPathForFile };
 
-    expect(extractNativeFolderPath(files)).toBe("/tmp/skills/writer");
+  beforeEach(() => {
+    getPathForFile.mockReset();
+  });
+
+  it("derives the selected directory from Electron webUtils file paths", () => {
+    const files = [{
+      webkitRelativePath: "writer/docs/guide.md"
+    }] as File[];
+    getPathForFile.mockReturnValue("/tmp/skills/writer/docs/guide.md");
+
+    expect(extractNativeFolderPath(files, webUtils)).toBe("/tmp/skills/writer");
   });
 
   it("falls back to the selected file's parent when no relative path is exposed", () => {
-    const files = [{ path: "/tmp/skills/SKILL.md", webkitRelativePath: "" }] as Array<File & { path: string }>;
+    const files = [{ webkitRelativePath: "" }] as File[];
+    getPathForFile.mockReturnValue("/tmp/skills/SKILL.md");
 
-    expect(extractNativeFolderPath(files)).toBe("/tmp/skills");
+    expect(extractNativeFolderPath(files, webUtils)).toBe("/tmp/skills");
   });
 
-  it("fails clearly when a selected directory exposes no file paths", () => {
-    expect(() => extractNativeFolderPath([])).toThrow("absolute folder path");
+  it("fails clearly when an empty directory provides no files", () => {
+    expect(() => extractNativeFolderPath([], webUtils)).toThrow("non-empty directory");
   });
 
-  it("fails clearly when Electron does not expose an absolute file path", () => {
+  it("fails clearly when Electron webUtils returns an empty file path", () => {
+    const files = [{ webkitRelativePath: "writer/SKILL.md" }] as File[];
+    getPathForFile.mockReturnValue("");
+
+    expect(() => extractNativeFolderPath(files, webUtils)).toThrow("absolute folder path");
+  });
+
+  it("fails clearly when Electron webUtils is unavailable", () => {
     const files = [{ webkitRelativePath: "writer/SKILL.md" }] as File[];
 
-    expect(() => extractNativeFolderPath(files)).toThrow("absolute folder path");
+    expect(() => extractNativeFolderPath(files)).toThrow("webUtils.getPathForFile is unavailable");
   });
 });
