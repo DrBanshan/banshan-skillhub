@@ -13,3 +13,4 @@ coverage/
 
 # Superpowers design/spec workspace files
 docs/superpowers/
+.superpowers/
