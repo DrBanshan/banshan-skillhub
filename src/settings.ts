@@ -2,6 +2,7 @@ import { PluginSettingTab, Setting } from "obsidian";
 import type SkillHubPlugin from "./main";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillHubSettings } from "./types";
+import { resolveVaultRelativePath } from "./vaultPaths";
 
 export class SkillHubSettingTab extends PluginSettingTab {
   constructor(app: PluginSettingTab["app"], private readonly skillHubPlugin: SkillHubPlugin) {
@@ -13,11 +14,19 @@ export class SkillHubSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Skill Hub settings" });
 
-    new Setting(containerEl)
+    const skillFolderSetting = new Setting(containerEl)
       .setName("Skill folder")
       .setDesc("Vault folder used to store imported skills.")
       .addText((text) => text.setValue(this.skillHubPlugin.data.settings.skillFolder).onChange(async (value) => {
-        this.skillHubPlugin.data.settings.skillFolder = value.trim() || DEFAULT_SETTINGS.skillFolder;
+        const nextValue = value.trim() || DEFAULT_SETTINGS.skillFolder;
+        try {
+          resolveVaultRelativePath("/vault", nextValue);
+          skillFolderSetting.setDesc("Vault folder used to store imported skills.");
+        } catch (error) {
+          skillFolderSetting.setDesc(error instanceof Error ? error.message : String(error));
+          return;
+        }
+        this.skillHubPlugin.data.settings.skillFolder = nextValue;
         await this.skillHubPlugin.saveSkillHubData();
       }));
 
@@ -31,6 +40,20 @@ export class SkillHubSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.skillHubPlugin.data.settings.installMethod = value as SkillHubSettings["installMethod"];
           await this.skillHubPlugin.saveSkillHubData();
+        }));
+
+    new Setting(containerEl)
+      .setName("Default sort")
+      .setDesc("Initial ordering in the Skill Hub view.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("nickname", "Nickname")
+        .addOption("originalName", "Original name")
+        .addOption("updatedAt", "Recently updated")
+        .setValue(this.skillHubPlugin.data.settings.defaultSort)
+        .onChange(async (value) => {
+          this.skillHubPlugin.data.settings.defaultSort = value as SkillHubSettings["defaultSort"];
+          await this.skillHubPlugin.saveSkillHubData();
+          this.skillHubPlugin.refreshSkillHub();
         }));
 
     new Setting(containerEl)

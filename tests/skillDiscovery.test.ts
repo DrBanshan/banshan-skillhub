@@ -36,6 +36,20 @@ describe("discoverSkills", () => {
     expect(result.skills.some((skill) => skill.folderName === "not-skills")).toBe(false);
   });
 
+  it("returns a warning when SKILL.md exists but cannot be read", async () => {
+    const result = await discoverSkills(`${fixturesRoot}skills`, {
+      readFile: async (path) => {
+        if (String(path).endsWith("good-skill/SKILL.md")) {
+          throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+        }
+        return "---\nname: Other\ndescription: Other\n---\n";
+      }
+    });
+
+    expect(result.skills.some((skill) => skill.folderName === "good-skill")).toBe(false);
+    expect(result.warnings).toEqual([{ path: expect.stringContaining("good-skill/SKILL.md"), message: "permission denied" }]);
+  });
+
   it("reports a missing skills folder", async () => {
     const result = await discoverSkills(`${fixturesRoot}not-skills`);
 

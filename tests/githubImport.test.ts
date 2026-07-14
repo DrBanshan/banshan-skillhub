@@ -7,7 +7,8 @@ import {
   GitHubSkillDownloader,
   InvalidGitHubUrlError,
   MissingSkillsFolderError,
-  parseGitHubSkillUrl
+  parseGitHubSkillUrl,
+  resolveGitHubSkillUrl
 } from "../src/githubImport";
 
 const temporaryDirectories: string[] = [];
@@ -47,6 +48,32 @@ describe("parseGitHubSkillUrl", () => {
     });
   });
 
+  it("resolves slash-containing refs through the UI-facing async helper", async () => {
+    const checked: string[] = [];
+
+    await expect(resolveGitHubSkillUrl(
+      "https://github.com/owner/repo/tree/feature/x/packages/demo",
+      async (_owner, _repo, candidate) => {
+        checked.push(candidate);
+        return candidate === "feature/x";
+      }
+    )).resolves.toEqual({
+      owner: "owner",
+      repo: "repo",
+      ref: "feature/x",
+      skillsPath: "packages/demo/skills"
+    });
+    expect(checked).toContain("feature/x");
+  });
+
+  it("keeps full commit SHA tree URLs without a ref lookup", async () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    await expect(resolveGitHubSkillUrl(
+      `https://github.com/owner/repo/tree/${sha}/packages/demo`,
+      async () => { throw new Error("ref lookup should not run"); }
+    )).resolves.toEqual({ owner: "owner", repo: "repo", ref: sha, skillsPath: "packages/demo/skills" });
+  });
+
   it("uses a direct skills folder as the scan path", () => {
     expect(parseGitHubSkillUrl("https://github.com/owner/repo/tree/main/skills")).toEqual({
       owner: "owner",
@@ -75,7 +102,7 @@ describe("GitHubSkillDownloader", () => {
           ]
         };
       },
-      downloadFile: async () => undefined
+      downloadFile: async () => 0
     });
 
     await expect(
@@ -107,7 +134,9 @@ describe("GitHubSkillDownloader", () => {
       },
       downloadFile: async (url, path) => {
         downloads.push({ url, path });
-        await writeFile(path, url === "https://files/skill" ? "---\nname: Writer\ndescription: Writes\n---\n" : "Guide", { encoding: "utf8", flush: true });
+        const content = url === "https://files/skill" ? "---\nname: Writer\ndescription: Writes\n---\n" : "Guide";
+        await writeFile(path, content, { encoding: "utf8", flush: true });
+        return Buffer.byteLength(content);
       }
     });
 
@@ -132,7 +161,7 @@ describe("GitHubSkillDownloader", () => {
   it("reports a missing skills folder from a 404 response", async () => {
     const downloader = new GitHubSkillDownloader({
       fetchJson: async () => ({ status: 404, data: [] }),
-      downloadFile: async () => undefined
+      downloadFile: async () => 0
     });
 
     await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", skillsPath: "skills" })).rejects.toThrow(
@@ -145,7 +174,7 @@ describe("GitHubSkillDownloader", () => {
     temporaryDirectories.push(destination);
     const downloader = new GitHubSkillDownloader({
       fetchJson: async () => ({ status: 404, data: [] }),
-      downloadFile: async () => undefined
+      downloadFile: async () => 0
     });
 
     await expect(
@@ -156,7 +185,7 @@ describe("GitHubSkillDownloader", () => {
   it("rejects truncated listings", async () => {
     const downloader = new GitHubSkillDownloader({
       fetchJson: async () => ({ status: 200, truncated: true, data: [] }),
-      downloadFile: async () => undefined
+      downloadFile: async () => 0
     });
 
     await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", skillsPath: "skills" })).rejects.toThrow(
@@ -170,11 +199,113 @@ describe("GitHubSkillDownloader", () => {
         status: 200,
         data: Array.from({ length: 1000 }, (_, index) => ({ type: "dir", name: `skill-${index}`, path: `skills/skill-${index}` }))
       }),
-      downloadFile: async () => undefined
+      downloadFile: async () => 0
     });
 
     await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", skillsPath: "skills" })).rejects.toThrow(
       GitHubImportLimitError
     );
+  });
+
+  it("enforces an aggregate request limit across recursive listings", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => ({
+        status: 200,
+        data: path.endsWith("/writer")
+          ? [
+            { type: "dir", name: "one", path: "skills/writer/one" },
+            { type: "dir", name: "two", path: "skills/writer/two" }
+          ]
+          : []
+      }),
+      downloadFile: async () => 0
+    }, { maxRequests: 2 });
+
+    await expect(downloader.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
+  });
+
+  it("enforces aggregate file and byte limits", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const entries = [
+      { type: "file" as const, name: "SKILL.md", path: "skills/writer/SKILL.md", download_url: "https://files/skill" },
+      { type: "file" as const, name: "guide.md", path: "skills/writer/guide.md", download_url: "https://files/guide" }
+    ];
+    const fileLimited = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: entries }),
+      downloadFile: async () => 1
+    }, { maxFiles: 1 });
+    const byteLimited = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: entries.slice(0, 1) }),
+      downloadFile: async () => 6
+    }, { maxBytes: 5 });
+
+    await expect(fileLimited.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
+    await expect(byteLimited.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
+  });
+
+  it("counts file downloads as requests and rejects declared oversize files before download", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    let downloads = 0;
+    const entry = {
+      type: "file" as const,
+      name: "SKILL.md",
+      path: "skills/writer/SKILL.md",
+      download_url: "https://files/skill",
+      size: 10
+    };
+    const requestLimited = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: [entry] }),
+      downloadFile: async () => { downloads += 1; return 1; }
+    }, { maxRequests: 1 });
+    const byteLimited = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: [entry] }),
+      downloadFile: async () => { downloads += 1; return 1; }
+    }, { maxBytes: 5 });
+
+    await expect(requestLimited.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
+    await expect(byteLimited.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
+    expect(downloads).toBe(0);
+  });
+
+  it("enforces recursive depth", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({
+        status: 200,
+        data: [{ type: "dir", name: "docs", path: "skills/writer/docs" }]
+      }),
+      downloadFile: async () => 0
+    }, { maxDepth: 0 });
+
+    await expect(downloader.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    )).rejects.toThrow(GitHubImportLimitError);
   });
 });

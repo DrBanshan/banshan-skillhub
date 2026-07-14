@@ -85,4 +85,30 @@ describe("SkillRegistry", () => {
     expect(registry.data.collections["collection-1"]?.skillIds).toEqual([]);
     expect(registry.data.collections["collection-2"]?.skillIds).toEqual(["skill-1"]);
   });
+
+  it("removes a deleted collection from member skills", () => {
+    const registry = new SkillRegistry(createEmptySkillHubData());
+    registry.upsertSkill({
+      id: "skill-1",
+      folderName: "writer",
+      vaultPath: "Skill/writer",
+      originalName: "writer",
+      nickname: "Writer",
+      description: "",
+      tags: [],
+      collectionIds: ["collection-1"],
+      source: { type: "local", path: "/tmp/source" },
+      importMethod: "local",
+      warnings: [],
+      importedAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+      installCount: 0
+    });
+    registry.saveCollection({ id: "collection-1", name: "Writing", description: "", skillIds: ["skill-1"] });
+
+    registry.deleteCollection("collection-1");
+
+    expect(registry.data.collections).toEqual({});
+    expect(registry.data.skills["skill-1"]?.collectionIds).toEqual([]);
+  });
 });

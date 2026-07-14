@@ -3,6 +3,7 @@ import { join } from "path";
 import { createSkillEvent } from "./events";
 import { SkillRegistry } from "./registry";
 import type { InstallMethod, SkillRecord } from "./types";
+import { resolveVaultRelativePath } from "./vaultPaths";
 
 export type SymlinkConflictBehavior = "skip" | "replace-symlinks";
 export type DestinationState = "missing" | "symlink" | "real" | "other";
@@ -93,10 +94,10 @@ export class SkillExportService {
     }
 
     for (const record of records) {
-      const source = join(options.vaultPath, record.vaultPath);
       const destination = join(agentsSkillsDir, record.folderName);
 
       try {
+        const source = await resolveVaultRelativePath(options.vaultPath, record.vaultPath, { verifyFilesystem: true });
         const result = options.method === "symlink"
           ? await installBySymlink(source, destination, options.conflictBehavior)
           : await installByCopy(source, destination);

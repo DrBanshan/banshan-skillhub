@@ -9,9 +9,10 @@ export interface SkillHubSettings {
 }
 
 export interface SkillSource {
-  type: "local" | "github";
+  type: "local" | "github" | "npx";
   path?: string;
   url?: string;
+  command?: string;
 }
 
 export interface SkillRecord {

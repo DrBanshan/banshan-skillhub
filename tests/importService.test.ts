@@ -39,6 +39,20 @@ async function createStagedSkill(folderName: string, content: string): Promise<s
 }
 
 describe("SkillImportService", () => {
+  it.each(["../outside", "/tmp/outside", "C:\\outside"])("rejects unsafe configured skill folder %j", async (skillFolder) => {
+    const stagingPath = await createStagedSkill("writer", "---\nname: Writer\ndescription: Drafts prose\n---\n");
+    const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-vault-"));
+    temporaryDirectories.push(vaultPath);
+    const discovered = await discoverSkills(stagingPath);
+    const service = new SkillImportService(new SkillRegistry(createEmptySkillHubData()), { ...DEFAULT_SETTINGS, skillFolder });
+
+    await expect(service.importDiscoveredSkills(discovered.skills, {
+      vaultPath,
+      source: { type: "local", path: stagingPath },
+      importMethod: "local"
+    })).rejects.toThrow(/vault-relative/i);
+  });
+
   it("copies a selected skill into Skill and preserves its source files", async () => {
     const stagingPath = await createStagedSkill("writer", "---\nname: Writer\ndescription: Drafts prose\n---\n");
     const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-vault-"));
@@ -105,6 +119,48 @@ describe("SkillImportService", () => {
 
     await expect(access(stagingPath)).rejects.toThrow();
     temporaryDirectories.splice(temporaryDirectories.indexOf(stagingPath), 1);
+  });
+
+  it("rolls back copied folders and metadata when a later copy fails", async () => {
+    const stagingPath = await createStagedSkill("writer", "---\nname: Writer\ndescription: Drafts prose\n---\n");
+    const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-vault-"));
+    temporaryDirectories.push(vaultPath);
+    const discovered = await discoverSkills(stagingPath);
+    const registry = new SkillRegistry(createEmptySkillHubData());
+    const service = new SkillImportService(registry, DEFAULT_SETTINGS);
+
+    await expect(service.importDiscoveredSkills([
+      discovered.skills[0],
+      { ...discovered.skills[0], folderName: "missing", path: join(stagingPath, "skills", "missing") }
+    ], {
+      vaultPath,
+      source: { type: "local", path: stagingPath },
+      importMethod: "local"
+    })).rejects.toThrow();
+
+    await expect(access(join(vaultPath, "Skill", "writer"))).rejects.toThrow();
+    expect(registry.data.skills).toEqual({});
+    expect(registry.data.events).toEqual([]);
+  });
+
+  it("rolls back copied folders and metadata when persistence fails", async () => {
+    const stagingPath = await createStagedSkill("writer", "---\nname: Writer\ndescription: Drafts prose\n---\n");
+    const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-vault-"));
+    temporaryDirectories.push(vaultPath);
+    const discovered = await discoverSkills(stagingPath);
+    const registry = new SkillRegistry(createEmptySkillHubData());
+    const service = new SkillImportService(registry, DEFAULT_SETTINGS);
+
+    await expect(service.importDiscoveredSkills(discovered.skills, {
+      vaultPath,
+      source: { type: "local", path: stagingPath },
+      importMethod: "local",
+      persist: async () => { throw new Error("save failed"); }
+    })).rejects.toThrow("save failed");
+
+    await expect(access(join(vaultPath, "Skill", "writer"))).rejects.toThrow();
+    expect(registry.data.skills).toEqual({});
+    expect(registry.data.events).toEqual([]);
   });
 });
 

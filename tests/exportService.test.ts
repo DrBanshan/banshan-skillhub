@@ -67,6 +67,24 @@ function createService(record: SkillRecord): { service: SkillExportService; regi
 }
 
 describe("SkillExportService", () => {
+  it("rejects stored vault paths that escape the vault", async () => {
+    const { vaultPath, record } = await createVaultSkill("writer");
+    const targetPath = await createTargetDirectory();
+    record.vaultPath = "../outside";
+    const { service } = createService(record);
+
+    const summary = await service.installSkills([record], targetPath, {
+      vaultPath,
+      method: "copy",
+      conflictBehavior: "skip"
+    });
+
+    expect(summary).toMatchObject({
+      installed: [],
+      failed: [{ skillId: record.id, reason: expect.stringMatching(/vault-relative/i) }]
+    });
+  });
+
   it("creates .agents/skills and symlinks selected vault skills", async () => {
     const { vaultPath, record } = await createVaultSkill("writer");
     const targetPath = await createTargetDirectory();

@@ -1,5 +1,6 @@
 import { Modal, Setting } from "obsidian";
 import type { InstallSummary } from "../exportService";
+import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
 
 type SubmitHandler<T> = (value: T) => void | Promise<void>;
@@ -53,6 +54,32 @@ export class NpxCommandModal extends TextInputModal {
   }
 }
 
+export class ManualNpxFallbackModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly command: string,
+    private readonly reason: string,
+    private readonly onScan: SubmitHandler<void>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Run npx manually");
+    this.contentEl.createEl("p", { text: this.reason });
+    this.contentEl.createEl("code", { cls: "skillhub-command", text: this.command });
+    this.contentEl.createEl("p", { text: "Run this command in a folder, then select that output folder for scanning." });
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Scan output folder").setCta().onClick(async () => {
+      await this.onScan(undefined);
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export interface SkillSelectionOption<T> {
   id: string;
   label: string;
@@ -61,13 +88,16 @@ export interface SkillSelectionOption<T> {
 
 export class SkillSelectionModal<T> extends Modal {
   private readonly selected = new Set<string>();
+  private readonly cleanup: () => Promise<void>;
 
   constructor(
     app: Modal["app"],
     private readonly options: SkillSelectionOption<T>[],
-    private readonly onSubmit: SubmitHandler<T[]>
+    private readonly onSubmit: SubmitHandler<T[]>,
+    onCleanup: () => void | Promise<void> = () => undefined
   ) {
     super(app);
+    this.cleanup = createCleanupOnce(onCleanup);
   }
 
   onOpen(): void {
@@ -96,12 +126,17 @@ export class SkillSelectionModal<T> extends Modal {
     });
 
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Continue").setCta().onClick(async () => {
-      await this.onSubmit(this.options.filter((option) => this.selected.has(option.id)).map((option) => option.value));
-      this.close();
+      try {
+        await this.onSubmit(this.options.filter((option) => this.selected.has(option.id)).map((option) => option.value));
+      } finally {
+        await this.cleanup();
+        this.close();
+      }
     }));
   }
 
   onClose(): void {
+    void this.cleanup();
     this.contentEl.empty();
   }
 }
@@ -176,9 +211,185 @@ export class DeleteConfirmationModal extends Modal {
 
   onOpen(): void {
     this.setTitle("Delete skill");
-    this.contentEl.createEl("p", { text: `Remove ${this.skill.nickname} from Skill Hub?` });
+    this.contentEl.createEl("p", {
+      text: `Delete ${this.skill.nickname}? Its copied vault folder and Skill Hub plugin metadata will be permanently deleted.`
+    });
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
       await this.onConfirm();
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+export class BulkDeleteConfirmationModal extends Modal {
+  constructor(app: Modal["app"], private readonly count: number, private readonly onConfirm: SubmitHandler<void>) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Delete selected skills");
+    this.contentEl.createEl("p", {
+      text: `Delete ${this.count} selected skills? Their copied vault folders and Skill Hub plugin metadata will be permanently deleted.`
+    });
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setWarning().onClick(async () => {
+      await this.onConfirm(undefined);
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+export class SkillDetailModal extends Modal {
+  constructor(app: Modal["app"], private readonly skill: SkillRecord, private readonly collections: SkillCollection[]) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle(this.skill.nickname);
+    this.addDetail("Original name", this.skill.originalName);
+    this.addDetail("Description", this.skill.description || "No description provided.");
+    this.addDetail("Vault path", this.skill.vaultPath);
+    this.addDetail("Source", formatSkillSource(this.skill));
+    this.addDetail("Tags", this.skill.tags.join(", ") || "None");
+    this.addDetail(
+      "Collections",
+      this.collections.filter((collection) => this.skill.collectionIds.includes(collection.id)).map((collection) => collection.name).join(", ") || "None"
+    );
+    this.addDetail("Install count", String(this.skill.installCount));
+    this.addDetail("Warnings", this.skill.warnings.join("; ") || "None");
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private addDetail(label: string, value: string): void {
+    const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
+    row.createEl("strong", { text: label });
+    row.createEl("span", { text: value });
+  }
+}
+
+export interface CollectionEditValues {
+  name: string;
+  description: string;
+  color: string;
+}
+
+export class CollectionEditModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly collection: SkillCollection | undefined,
+    private readonly onSubmit: SubmitHandler<CollectionEditValues>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle(this.collection ? "Edit collection" : "New collection");
+    let name = this.collection?.name ?? "";
+    let description = this.collection?.description ?? "";
+    let color = this.collection?.color ?? "#7f8c8d";
+    new Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => { name = value; }));
+    new Setting(this.contentEl).setName("Description").addText((text) => text.setValue(description).onChange((value) => { description = value; }));
+    new Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => { color = value; }));
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
+      if (!name.trim()) return;
+      await this.onSubmit({ name: name.trim(), description: description.trim(), color });
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+export interface CollectionManagerActions {
+  create(values: CollectionEditValues): void | Promise<void>;
+  update(collection: SkillCollection, values: CollectionEditValues): void | Promise<void>;
+  delete(collection: SkillCollection): void | Promise<void>;
+}
+
+export class CollectionManagerModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly getCollections: () => SkillCollection[],
+    private readonly actions: CollectionManagerActions
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.renderCollections();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private renderCollections(): void {
+    this.contentEl.empty();
+    this.setTitle("Collections");
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("New collection").setCta().onClick(() => {
+      new CollectionEditModal(this.app, undefined, async (values) => {
+        await this.actions.create(values);
+        this.renderCollections();
+      }).open();
+    }));
+
+    for (const collection of this.getCollections()) {
+      new Setting(this.contentEl)
+        .setName(collection.name)
+        .setDesc(collection.description || `${collection.skillIds.length} skills`)
+        .addButton((button) => button.setButtonText("Edit").onClick(() => {
+          new CollectionEditModal(this.app, collection, async (values) => {
+            await this.actions.update(collection, values);
+            this.renderCollections();
+          }).open();
+        }))
+        .addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
+          await this.actions.delete(collection);
+          this.renderCollections();
+        }));
+    }
+  }
+}
+
+export type BulkCollectionAction = "add" | "remove";
+
+export class BulkCollectionMembershipModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly collections: SkillCollection[],
+    private readonly onSubmit: SubmitHandler<{ action: BulkCollectionAction; collectionIds: string[] }>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Update selected collections");
+    let action: BulkCollectionAction = "add";
+    const collectionIds = new Set<string>();
+    new Setting(this.contentEl).setName("Action").addDropdown((dropdown) => dropdown
+      .addOption("add", "Add membership")
+      .addOption("remove", "Remove membership")
+      .onChange((value) => { action = value as BulkCollectionAction; }));
+    for (const collection of this.collections) {
+      new Setting(this.contentEl).setName(collection.name).addToggle((toggle) => toggle.onChange((selected) => {
+        selected ? collectionIds.add(collection.id) : collectionIds.delete(collection.id);
+      }));
+    }
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Apply").setCta().onClick(async () => {
+      if (collectionIds.size === 0) return;
+      await this.onSubmit({ action, collectionIds: [...collectionIds] });
       this.close();
     }));
   }
@@ -205,4 +416,10 @@ export class InstallResultModal extends Modal {
   onClose(): void {
     this.contentEl.empty();
   }
+}
+
+function formatSkillSource(skill: SkillRecord): string {
+  if (skill.source.type === "github") return skill.source.url ?? "GitHub";
+  if (skill.source.type === "npx") return skill.source.command ?? "npx";
+  return skill.source.path ?? "Local folder";
 }

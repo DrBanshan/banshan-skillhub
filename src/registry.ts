@@ -45,6 +45,9 @@ export class SkillRegistry {
 
   deleteCollection(id: string): void {
     delete this.data.collections[id];
+    for (const skill of Object.values(this.data.skills)) {
+      skill.collectionIds = skill.collectionIds.filter((collectionId) => collectionId !== id);
+    }
   }
 
   recordEvent(event: SkillEvent): void {

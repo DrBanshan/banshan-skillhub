@@ -3,6 +3,12 @@ import { dirname, join } from "path";
 import { discoverSkills, type DiscoveryResult } from "./skillDiscovery";
 
 const GITHUB_CONTENTS_LISTING_LIMIT = 1000;
+const DEFAULT_DOWNLOAD_LIMITS: GitHubDownloadLimits = {
+  maxRequests: 200,
+  maxFiles: 500,
+  maxBytes: 50 * 1024 * 1024,
+  maxDepth: 20
+};
 
 export interface GitHubSkillLocation {
   owner: string;
@@ -20,6 +26,7 @@ export interface GitHubContentEntry {
   name: string;
   path: string;
   download_url?: string | null;
+  size?: number;
 }
 
 export interface GitHubApiResponse {
@@ -30,8 +37,17 @@ export interface GitHubApiResponse {
 
 export interface GitHubSkillDownloaderDependencies {
   fetchJson(path: string): Promise<GitHubApiResponse>;
-  downloadFile(url: string, destination: string): Promise<void>;
+  downloadFile(url: string, destination: string): Promise<number>;
 }
+
+export interface GitHubDownloadLimits {
+  maxRequests: number;
+  maxFiles: number;
+  maxBytes: number;
+  maxDepth: number;
+}
+
+export type GitHubRefExists = (owner: string, repo: string, ref: string) => Promise<boolean>;
 
 export class InvalidGitHubUrlError extends Error {
   constructor(input: string) {
@@ -82,6 +98,22 @@ export function parseGitHubSkillUrl(input: string, options: ParseGitHubSkillUrlO
   return { owner, repo, ref, skillsPath };
 }
 
+export async function resolveGitHubSkillUrl(input: string, refExists: GitHubRefExists): Promise<GitHubSkillLocation> {
+  const fallback = parseGitHubSkillUrl(input);
+  if (!fallback.ref) return fallback;
+  if (/^[0-9a-f]{40}$/i.test(fallback.ref)) return fallback;
+
+  const treeSegments = new URL(input).pathname.split("/").filter(Boolean).slice(3);
+  for (let segmentCount = treeSegments.length; segmentCount > 0; segmentCount -= 1) {
+    const candidate = treeSegments.slice(0, segmentCount).join("/");
+    if (await refExists(fallback.owner, fallback.repo, candidate)) {
+      return parseGitHubSkillUrl(input, { knownRefs: [candidate] });
+    }
+  }
+
+  throw new InvalidGitHubUrlError(input);
+}
+
 function resolveRef(treeSegments: string[], knownRefs?: string[]): string {
   if (knownRefs) {
     const matchingRefs = knownRefs.filter((candidate) => treeSegments.join("/").startsWith(`${candidate}/`) || treeSegments.join("/") === candidate);
@@ -92,7 +124,17 @@ function resolveRef(treeSegments: string[], knownRefs?: string[]): string {
 }
 
 export class GitHubSkillDownloader {
-  constructor(private readonly dependencies: GitHubSkillDownloaderDependencies) {}
+  private readonly limits: GitHubDownloadLimits;
+  private requests = 0;
+  private files = 0;
+  private bytes = 0;
+
+  constructor(
+    private readonly dependencies: GitHubSkillDownloaderDependencies,
+    limits: Partial<GitHubDownloadLimits> = {}
+  ) {
+    this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
+  }
 
   async listSkillFolders(location: GitHubSkillLocation): Promise<string[]> {
     const entries = await this.listContents(location, location.skillsPath);
@@ -103,34 +145,57 @@ export class GitHubSkillDownloader {
     if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
 
     const selectedPath = `${location.skillsPath}/${folderName}`;
-    await this.downloadContents(location, selectedPath, destination, selectedPath);
+    await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
     return discoverSkills(destination);
   }
 
-  private async downloadContents(location: GitHubSkillLocation, path: string, destination: string, selectedPath: string): Promise<void> {
+  private async downloadContents(
+    location: GitHubSkillLocation,
+    path: string,
+    destination: string,
+    selectedPath: string,
+    depth: number
+  ): Promise<void> {
+    if (depth > this.limits.maxDepth) throw new GitHubImportLimitError(path);
     const entries = await this.listContents(location, path);
     for (const entry of entries) {
       if (!isWithinPath(entry.path, selectedPath)) continue;
 
       if (entry.type === "dir") {
-        await this.downloadContents(location, entry.path, destination, selectedPath);
+        await this.downloadContents(location, entry.path, destination, selectedPath, depth + 1);
         continue;
       }
 
       if (!entry.download_url) throw new GitHubImportLimitError(entry.path);
+      if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
+      if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
+        throw new GitHubImportLimitError(entry.path);
+      }
+      this.consumeRequest(entry.path);
+      this.files += 1;
       const stagedPath = join(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
       await mkdir(dirname(stagedPath), { recursive: true });
-      await this.dependencies.downloadFile(entry.download_url, stagedPath);
+      const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath);
+      this.bytes += downloadedBytes;
+      if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
+        throw new GitHubImportLimitError(entry.path);
+      }
     }
   }
 
   private async listContents(location: GitHubSkillLocation, path: string): Promise<GitHubContentEntry[]> {
+    this.consumeRequest(path);
     const query = location.ref ? `?ref=${encodeURIComponent(location.ref)}` : "";
     const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}/contents/${path}${query}`);
     if (response.status === 404) throw new MissingSkillsFolderError(path);
     if (response.status !== 200) throw new Error(`GitHub contents request failed with status ${response.status}`);
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
     return response.data;
+  }
+
+  private consumeRequest(path: string): void {
+    if (this.requests >= this.limits.maxRequests) throw new GitHubImportLimitError(path);
+    this.requests += 1;
   }
 }
 

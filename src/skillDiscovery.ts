@@ -17,7 +17,21 @@ export interface DiscoveredSkill {
 export interface DiscoveryResult {
   skills: DiscoveredSkill[];
   missingSkillsFolder: boolean;
+  warnings: DiscoveryWarning[];
 }
+
+export interface DiscoveryWarning {
+  path: string;
+  message: string;
+}
+
+export interface DiscoveryDependencies {
+  readFile(path: string): Promise<string>;
+}
+
+const defaultDiscoveryDependencies: DiscoveryDependencies = {
+  readFile: (path) => readFile(path, "utf8")
+};
 
 export function resolveSkillsRoot(scanRoot: string): string {
   return basename(scanRoot) === "skills" ? scanRoot : join(scanRoot, "skills");
@@ -70,29 +84,38 @@ export function parseSkillMarkdown(markdown: string, folderName: string): Parsed
   return { name, description, warnings: [...new Set(warnings)] };
 }
 
-export async function discoverSkills(scanRoot: string): Promise<DiscoveryResult> {
+export async function discoverSkills(
+  scanRoot: string,
+  dependencies: DiscoveryDependencies = defaultDiscoveryDependencies
+): Promise<DiscoveryResult> {
   const skillsRoot = resolveSkillsRoot(scanRoot);
   try {
     await access(skillsRoot);
-  } catch {
-    return { skills: [], missingSkillsFolder: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { skills: [], missingSkillsFolder: true, warnings: [] };
+    }
+    throw error;
   }
 
   const entries = (await readdir(skillsRoot, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const skills: DiscoveredSkill[] = [];
+  const warnings: DiscoveryWarning[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
 
     const skillPath = join(skillsRoot, entry.name);
     const markdownPath = join(skillPath, "SKILL.md");
     try {
-      const markdown = await readFile(markdownPath, "utf8");
+      const markdown = await dependencies.readFile(markdownPath);
       const metadata = parseSkillMarkdown(markdown, entry.name);
       skills.push({ folderName: entry.name, path: skillPath, metadata, warnings: metadata.warnings });
-    } catch {
-      // A directory without SKILL.md is not a discoverable skill.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        warnings.push({ path: markdownPath, message: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
 
-  return { skills, missingSkillsFolder: false };
+  return { skills, missingSkillsFolder: false, warnings };
 }
