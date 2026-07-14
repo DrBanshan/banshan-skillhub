@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { discoverSkills, parseSkillMarkdown } from "../src/skillDiscovery";
 
@@ -20,6 +23,22 @@ describe("discoverSkills", () => {
     const result = await discoverSkills(`${fixturesRoot}skills`);
 
     expect(result.skills.map((skill) => skill.folderName)).toEqual(["good-skill", "missing-description"]);
+  });
+
+  it("discovers npx output below .agents/skills", async () => {
+    const stagingPath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
+    const skillPath = join(stagingPath, ".agents", "skills", "writer");
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, "SKILL.md"), "---\nname: Writer\ndescription: Writes\n---\n", "utf8");
+
+    try {
+      const result = await discoverSkills(stagingPath);
+
+      expect(result.missingSkillsFolder).toBe(false);
+      expect(result.skills.map((skill) => skill.folderName)).toEqual(["writer"]);
+    } finally {
+      await rm(stagingPath, { force: true, recursive: true });
+    }
   });
 
   it("includes a skill with a missing description and warning", async () => {

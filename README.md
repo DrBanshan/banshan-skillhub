@@ -11,8 +11,8 @@ This plugin is desktop-only. It uses local filesystem access to import skill fol
 Use the Skill Hub view to choose an import source, then select the discovered skills to add to your vault.
 
 - **GitHub:** Provide a GitHub URL that points to a directory containing `skills/`. The plugin does not download full repository ZIP archives.
-- **Local folder:** Choose a local folder containing `skills/`, with one skill folder per skill and a `SKILL.md` file in each skill folder.
-- **npx:** Run a permitted `npx skills add owner/repo` command when npx execution is enabled in the plugin settings. Skill Hub discovers the generated skills before importing them.
+- **Local folder:** Choose a non-empty local folder containing `skills/`, with one skill folder per skill and a `SKILL.md` file in each skill folder. The native folder picker cannot select an empty directory because Obsidian does not expose its path without a selected file.
+- **npx:** Run a permitted `npx skills add owner/repo` command when npx execution is enabled in the plugin settings. Automatic execution is always project-scoped, ensures a `codex` agent target at `.agents/skills/`, selects all skills unless `--skill` or `--all` is supplied, confirms non-interactively, uses copy mode, and disables telemetry. Global (`--global` or `-g`) and list-only commands are rejected.
 
 Imported skill folders are copied into `Skill/<folder>` in the vault. If a folder name already exists, Skill Hub creates a collision-safe name such as `writer-2` rather than replacing existing files.
 

@@ -180,7 +180,7 @@ export class SkillHubView extends ItemView {
 
   private openBulkDelete(): void {
     const records = this.getSelectedSkills();
-    new BulkDeleteConfirmationModal(this.app, records.length, async () => {
+    new BulkDeleteConfirmationModal(this.app, records, async () => {
       try {
         await this.plugin.deleteSkills(records);
         this.selectedSkillIds.clear();

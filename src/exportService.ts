@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, rm, symlink } from "fs/promises";
+import { cp, lstat, mkdir, symlink, unlink } from "fs/promises";
 import { join } from "path";
 import { createSkillEvent } from "./events";
 import { SkillRegistry } from "./registry";
@@ -53,7 +53,7 @@ export async function installBySymlink(
 ): Promise<InstallResult> {
   const state = await inspectDestination(destination);
   if (state === "symlink" && conflictBehavior === "replace-symlinks") {
-    await rm(destination, { force: true, recursive: true });
+    await unlink(destination);
     await symlink(source, destination, "dir");
     return "replaced";
   }
@@ -66,7 +66,13 @@ export async function installBySymlink(
 export async function installByCopy(source: string, destination: string): Promise<InstallResult> {
   if ((await inspectDestination(destination)) !== "missing") return "skipped";
 
-  await cp(source, destination, { recursive: true });
+  try {
+    await mkdir(destination);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "skipped";
+    throw error;
+  }
+  await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
   return "installed";
 }
 

@@ -9,7 +9,8 @@ import {
   InvalidGitHubUrlError,
   MissingSkillsFolderError,
   parseGitHubSkillUrl,
-  resolveGitHubSkillUrl
+  resolveGitHubSkillUrl,
+  writeBoundedGitHubResponse
 } from "../src/githubImport";
 
 const temporaryDirectories: string[] = [];
@@ -310,6 +311,37 @@ describe("GitHubSkillDownloader", () => {
     )).rejects.toThrow(GitHubImportLimitError);
   });
 
+  it("passes the remaining byte budget to the production download boundary", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const limits: number[] = [];
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({
+        status: 200,
+        data: [{
+          type: "file",
+          name: "SKILL.md",
+          path: "skills/writer/SKILL.md",
+          download_url: "https://files/skill",
+          size: 4
+        }]
+      }),
+      downloadFile: async (_url, path, maxBytes) => {
+        limits.push(maxBytes);
+        await writeFile(path, "test", "utf8");
+        return 4;
+      }
+    }, { maxBytes: 5 });
+
+    await downloader.downloadSkillFolder(
+      { owner: "owner", repo: "repo", skillsPath: "skills" },
+      "writer",
+      destination
+    );
+
+    expect(limits).toEqual([5]);
+  });
+
   it("counts file downloads as requests and rejects declared oversize files before download", async () => {
     const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
     temporaryDirectories.push(destination);
@@ -359,5 +391,31 @@ describe("GitHubSkillDownloader", () => {
       "writer",
       destination
     )).rejects.toThrow(GitHubImportLimitError);
+  });
+});
+
+describe("writeBoundedGitHubResponse", () => {
+  it("rejects an oversized content length before writing", async () => {
+    let writes = 0;
+
+    await expect(writeBoundedGitHubResponse({
+      status: 200,
+      headers: { "content-length": "6" },
+      arrayBuffer: new TextEncoder().encode("small").buffer
+    }, "/tmp/skill", 5, async () => { writes += 1; })).rejects.toThrow(GitHubImportLimitError);
+
+    expect(writes).toBe(0);
+  });
+
+  it("checks actual buffered bytes before the final write", async () => {
+    let writes = 0;
+
+    await expect(writeBoundedGitHubResponse({
+      status: 200,
+      headers: {},
+      arrayBuffer: new TextEncoder().encode("larger").buffer
+    }, "/tmp/skill", 5, async () => { writes += 1; })).rejects.toThrow(GitHubImportLimitError);
+
+    expect(writes).toBe(0);
   });
 });

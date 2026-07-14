@@ -1,5 +1,6 @@
 import { access, cp, mkdir, rm } from "fs/promises";
 import { join, relative, sep } from "path";
+import { combineErrors } from "./errors";
 import { createSkillEvent } from "./events";
 import { SkillRegistry } from "./registry";
 import type { DiscoveredSkill } from "./skillDiscovery";
@@ -38,8 +39,9 @@ export class SkillImportService {
   async importDiscoveredSkills(discovered: DiscoveredSkill[], options: ImportOptions): Promise<ImportResult> {
     const destinationRoot = await resolveVaultRelativePath(options.vaultPath, this.settings.skillFolder, { verifyFilesystem: true });
     const imported: SkillRecord[] = [];
-    const copiedDestinations: string[] = [];
+    const copyAttempts: Array<{ destination: string; record: SkillRecord }> = [];
     const eventsStart = this.registry.data.events.length;
+    let operationError: unknown;
 
     try {
       await mkdir(destinationRoot, { recursive: true });
@@ -54,9 +56,6 @@ export class SkillImportService {
         });
         const vaultRelativePath = join(this.settings.skillFolder, folderName);
         const destination = await resolveVaultRelativePath(options.vaultPath, vaultRelativePath, { verifyFilesystem: true });
-        copiedDestinations.push(destination);
-        await cp(skill.path, destination, { recursive: true });
-
         const timestamp = new Date().toISOString();
         const record: SkillRecord = {
           id: `${folderName}-${Math.random().toString(36).slice(2, 10)}`,
@@ -74,6 +73,8 @@ export class SkillImportService {
           updatedAt: timestamp,
           installCount: 0
         };
+        copyAttempts.push({ destination, record });
+        await cp(skill.path, destination, { recursive: true, force: false, errorOnExist: true });
         imported.push(record);
       }
 
@@ -85,12 +86,53 @@ export class SkillImportService {
 
       return { imported };
     } catch (error) {
-      await Promise.all(copiedDestinations.map((destination) => rm(destination, { force: true, recursive: true }).catch(() => undefined)));
+      const cleanupFailures: Array<{ record: SkillRecord; error: unknown }> = [];
+      for (const attempt of copyAttempts) {
+        try {
+          await rm(attempt.destination, { force: true, recursive: true });
+        } catch (cleanupError) {
+          cleanupFailures.push({ record: attempt.record, error: cleanupError });
+        }
+      }
+
       for (const record of imported) this.registry.deleteSkill(record.id);
       this.registry.data.events.splice(eventsStart);
-      throw error;
+      operationError = error;
+
+      if (cleanupFailures.length > 0) {
+        for (const failure of cleanupFailures) {
+          this.registry.upsertSkill(failure.record);
+          this.registry.recordEvent(createSkillEvent(
+            "skill_imported",
+            failure.record.id,
+            { method: options.importMethod, rollbackCleanupFailed: true },
+            failure.record.importedAt
+          ));
+        }
+        operationError = combineErrors(
+          operationError,
+          cleanupFailures.map((failure) => failure.error instanceof Error ? failure.error.message : String(failure.error)).join("; "),
+          "rollback cleanup failed"
+        );
+        if (options.persist) {
+          try {
+            await options.persist();
+          } catch (persistError) {
+            operationError = combineErrors(operationError, persistError, "retained metadata persistence failed");
+          }
+        }
+      }
+
+      throw operationError;
     } finally {
-      if (options.stagingPath) await rm(options.stagingPath, { force: true, recursive: true }).catch(() => undefined);
+      if (options.stagingPath) {
+        try {
+          await rm(options.stagingPath, { force: true, recursive: true });
+        } catch (cleanupError) {
+          if (operationError) throw combineErrors(operationError, cleanupError, "staging cleanup failed");
+          throw combineErrors("Import completed", cleanupError, "staging cleanup failed");
+        }
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { discoverSkills, type DiscoveryResult } from "./skillDiscovery";
 
@@ -43,7 +43,13 @@ export interface GitHubApiResponse {
 
 export interface GitHubSkillDownloaderDependencies {
   fetchJson(path: string): Promise<GitHubApiResponse>;
-  downloadFile(url: string, destination: string): Promise<number>;
+  downloadFile(url: string, destination: string, maxBytes: number): Promise<number>;
+}
+
+export interface GitHubDownloadResponse {
+  status: number;
+  headers: Record<string, string>;
+  arrayBuffer: ArrayBuffer;
 }
 
 export interface GitHubDownloadLimits {
@@ -74,6 +80,28 @@ export class GitHubImportLimitError extends Error {
     super(`GitHub listing is incomplete or too large: ${path}`);
     this.name = "GitHubImportLimitError";
   }
+}
+
+export async function writeBoundedGitHubResponse(
+  response: GitHubDownloadResponse,
+  destination: string,
+  maxBytes: number,
+  write: (path: string, data: Buffer) => Promise<void> = (path, data) => writeFile(path, data)
+): Promise<number> {
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`GitHub download request failed with status ${response.status}`);
+  }
+
+  const contentLengthHeader = Object.entries(response.headers).find(([name]) => name.toLowerCase() === "content-length")?.[1];
+  const contentLength = contentLengthHeader === undefined ? undefined : Number(contentLengthHeader);
+  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new GitHubImportLimitError(destination);
+  }
+
+  const buffer = Buffer.from(response.arrayBuffer);
+  if (buffer.byteLength > maxBytes) throw new GitHubImportLimitError(destination);
+  await write(destination, buffer);
+  return buffer.byteLength;
 }
 
 export class GitHubRequestBudget {
@@ -206,7 +234,7 @@ export class GitHubSkillDownloader {
       this.files += 1;
       const stagedPath = join(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
       await mkdir(dirname(stagedPath), { recursive: true });
-      const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath);
+      const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath, this.limits.maxBytes - this.bytes);
       this.bytes += downloadedBytes;
       if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
         throw new GitHubImportLimitError(entry.path);

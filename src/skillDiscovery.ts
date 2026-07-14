@@ -37,6 +37,11 @@ export function resolveSkillsRoot(scanRoot: string): string {
   return basename(scanRoot) === "skills" ? scanRoot : join(scanRoot, "skills");
 }
 
+export function resolveSkillsRootCandidates(scanRoot: string): string[] {
+  if (basename(scanRoot) === "skills") return [scanRoot];
+  return [join(scanRoot, ".agents", "skills"), join(scanRoot, "skills")];
+}
+
 export function parseSkillMarkdown(markdown: string, folderName: string): ParsedSkillMetadata {
   const lines = markdown.split(/\r?\n/);
   const warnings: string[] = [];
@@ -88,15 +93,17 @@ export async function discoverSkills(
   scanRoot: string,
   dependencies: DiscoveryDependencies = defaultDiscoveryDependencies
 ): Promise<DiscoveryResult> {
-  const skillsRoot = resolveSkillsRoot(scanRoot);
-  try {
-    await access(skillsRoot);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { skills: [], missingSkillsFolder: true, warnings: [] };
+  let skillsRoot: string | undefined;
+  for (const candidate of resolveSkillsRootCandidates(scanRoot)) {
+    try {
+      await access(candidate);
+      skillsRoot = candidate;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    throw error;
   }
+  if (!skillsRoot) return { skills: [], missingSkillsFolder: true, warnings: [] };
 
   const entries = (await readdir(skillsRoot, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const skills: DiscoveredSkill[] = [];

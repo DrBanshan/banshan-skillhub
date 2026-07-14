@@ -3,21 +3,21 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillImportService } from "../src/importService";
-import { runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
+import { normalizeNpxSkillsCommand, runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 import { DEFAULT_SETTINGS } from "../src/settingsDefaults";
 import { discoverSkills } from "../src/skillDiscovery";
 
 const temporaryDirectories: string[] = [];
-const cleanupFailure = vi.hoisted(() => ({ enabled: false }));
+const cleanupFailure = vi.hoisted(() => ({ pathIncludes: "", remaining: 0 }));
 
 vi.mock("fs/promises", async () => {
   const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
   return {
     ...actual,
     rm: async (path: Parameters<typeof actual.rm>[0], options: Parameters<typeof actual.rm>[1]) => {
-      if (cleanupFailure.enabled && String(path).includes(".skillhub-npx-import-")) {
-        cleanupFailure.enabled = false;
+      if (cleanupFailure.remaining > 0 && String(path).includes(cleanupFailure.pathIncludes)) {
+        cleanupFailure.remaining -= 1;
         throw new Error("cleanup failed");
       }
       return actual.rm(path, options);
@@ -26,6 +26,8 @@ vi.mock("fs/promises", async () => {
 });
 
 afterEach(async () => {
+  cleanupFailure.pathIncludes = "";
+  cleanupFailure.remaining = 0;
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
 });
 
@@ -162,6 +164,29 @@ describe("SkillImportService", () => {
     expect(registry.data.skills).toEqual({});
     expect(registry.data.events).toEqual([]);
   });
+
+  it("retains metadata and reports rollback cleanup failures", async () => {
+    const stagingPath = await createStagedSkill("writer", "---\nname: Writer\ndescription: Drafts prose\n---\n");
+    const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-vault-"));
+    temporaryDirectories.push(vaultPath);
+    const discovered = await discoverSkills(stagingPath);
+    const registry = new SkillRegistry(createEmptySkillHubData());
+    const service = new SkillImportService(registry, DEFAULT_SETTINGS);
+    cleanupFailure.pathIncludes = join("Skill", "writer");
+    cleanupFailure.remaining = 1;
+
+    await expect(service.importDiscoveredSkills(discovered.skills, {
+      vaultPath,
+      source: { type: "local", path: stagingPath },
+      importMethod: "local",
+      persist: async () => { throw new Error("save failed"); }
+    })).rejects.toThrow(/save failed.*rollback cleanup failed/i);
+
+    expect(Object.values(registry.data.skills).map((record) => record.folderName)).toEqual(["writer"]);
+    expect(Object.values(registry.data.skills)[0]).toMatchObject({ vaultPath: "Skill/writer" });
+    expect(registry.data.events).toHaveLength(1);
+    await expect(access(join(vaultPath, "Skill", "writer"))).resolves.toBeUndefined();
+  });
 });
 
 describe("validateNpxSkillsCommand", () => {
@@ -173,20 +198,52 @@ describe("validateNpxSkillsCommand", () => {
     expect(validateNpxSkillsCommand("npm skills add owner/repo")).toBe(false);
     expect(validateNpxSkillsCommand("npx other add owner/repo")).toBe(false);
   });
+
+  it.each([
+    "npx skills add owner/repo --global",
+    "npx skills add owner/repo -g"
+  ])("rejects global installation command %j", (command) => {
+    expect(validateNpxSkillsCommand(command)).toBe(false);
+    expect(() => normalizeNpxSkillsCommand(command)).toThrow(/global/i);
+  });
+
+  it("appends deterministic project-scoped import flags", () => {
+    expect(normalizeNpxSkillsCommand("npx skills add owner/repo")).toEqual([
+      "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"
+    ]);
+  });
+
+  it("preserves requested skills and parses quoted names", () => {
+    expect(normalizeNpxSkillsCommand('npx skills add owner/repo --skill "Convex Best Practices" --agent codex -y --copy')).toEqual([
+      "skills", "add", "owner/repo", "--skill", "Convex Best Practices", "--agent", "codex", "-y", "--copy"
+    ]);
+  });
+
+  it("adds codex when another agent target does not guarantee .agents/skills output", () => {
+    expect(normalizeNpxSkillsCommand("npx skills add owner/repo --agent claude-code --all --yes --copy")).toEqual([
+      "skills", "add", "owner/repo", "--agent", "claude-code", "--all", "--yes", "--copy", "--agent", "codex"
+    ]);
+  });
 });
 
 describe("runNpxSkillsAdd", () => {
   it("runs a validated command inside a staging directory below cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
-    const calls: Array<{ file: string; args: string[]; cwd?: string }> = [];
+    const calls: Array<{ file: string; args: string[]; cwd?: string; env?: NodeJS.ProcessEnv }> = [];
 
     const stagingPath = await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
-      calls.push({ file, args, cwd: options.cwd });
+      calls.push({ file, args, cwd: options.cwd, env: options.env });
     });
 
     expect(stagingPath.startsWith(cwd)).toBe(true);
-    expect(calls).toEqual([{ file: "npx", args: ["skills", "add", "owner/repo"], cwd: stagingPath }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      file: "npx",
+      args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"],
+      cwd: stagingPath,
+      env: { DO_NOT_TRACK: "1", DISABLE_TELEMETRY: "1", CI: "1", PATH: process.env.PATH }
+    });
   });
 
   it("removes the staging directory when npx rejects", async () => {
@@ -206,16 +263,17 @@ describe("runNpxSkillsAdd", () => {
     await expect(access(stagingPath as string)).rejects.toThrow();
   });
 
-  it("preserves the npx error when staging cleanup fails", async () => {
+  it("reports both the npx error and staging cleanup failure", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
     const error = new Error("npx failed");
-    cleanupFailure.enabled = true;
+    cleanupFailure.pathIncludes = ".skillhub-npx-import-";
+    cleanupFailure.remaining = 1;
 
     await expect(
       runNpxSkillsAdd("npx skills add owner/repo", cwd, async () => {
         throw error;
       })
-    ).rejects.toBe(error);
+    ).rejects.toThrow(/npx failed.*staging cleanup failed/i);
   });
 });

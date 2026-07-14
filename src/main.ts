@@ -1,10 +1,11 @@
 import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
+import { combineErrors } from "./errors";
 import { SkillExportService } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
-import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, type GitHubContentEntry } from "./githubImport";
+import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
 import { SkillImportService } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -74,14 +75,12 @@ export default class SkillHubPlugin extends Plugin {
       );
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
-          const response = await requestUrl({ url: `https://api.github.com${path}` });
+          const response = await requestUrl({ url: `https://api.github.com${path}`, throw: false });
           return { status: response.status, data: response.json as GitHubContentEntry[] };
         },
-        downloadFile: async (downloadUrl, destination) => {
-          const response = await requestUrl({ url: downloadUrl });
-          const buffer = Buffer.from(response.arrayBuffer);
-          await writeFile(destination, buffer);
-          return buffer.byteLength;
+        downloadFile: async (downloadUrl, destination, maxBytes) => {
+          const response = await requestUrl({ url: downloadUrl, throw: false });
+          return writeBoundedGitHubResponse(response, destination, maxBytes);
         }
       }, {}, requestBudget);
       const folders = await downloader.listSkillFolders(location);
@@ -96,8 +95,7 @@ export default class SkillHubPlugin extends Plugin {
           this.showDiscoveryWarnings(discovered.warnings);
           await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
         } catch (error) {
-          await this.cleanupStagingPath(stagingPath);
-          this.showError(error);
+          this.showError(await this.cleanupStagingAfterError(error, stagingPath));
         }
       }).open();
     } catch (error) {
@@ -139,8 +137,7 @@ export default class SkillHubPlugin extends Plugin {
       this.showDiscoveryWarnings(discovered.warnings);
       await this.openImportSelection(discovered.skills, { type: "npx", command }, "npx", stagingPath);
     } catch (error) {
-      await this.cleanupStagingPath(stagingPath);
-      this.showError(error);
+      this.showError(await this.cleanupStagingAfterError(error, stagingPath));
     }
   }
 
@@ -208,14 +205,22 @@ export default class SkillHubPlugin extends Plugin {
         this.refreshSkillHub();
         new Notice(`Imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"}.`);
       } catch (error) {
-        await this.cleanupStagingPath(stagingPath);
-        this.showError(error);
+        this.showError(await this.cleanupStagingAfterError(error, stagingPath));
       }
     }, () => this.cleanupStagingPath(stagingPath)).open();
   }
 
   private async cleanupStagingPath(stagingPath?: string): Promise<void> {
-    if (stagingPath) await rm(stagingPath, { force: true, recursive: true }).catch(() => undefined);
+    if (stagingPath) await rm(stagingPath, { force: true, recursive: true });
+  }
+
+  private async cleanupStagingAfterError(error: unknown, stagingPath?: string): Promise<unknown> {
+    try {
+      await this.cleanupStagingPath(stagingPath);
+      return error;
+    } catch (cleanupError) {
+      return combineErrors(error, cleanupError, "staging cleanup failed");
+    }
   }
 
   private getVaultBasePath(): string {

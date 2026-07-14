@@ -1,4 +1,4 @@
-import { Modal, Setting } from "obsidian";
+import { Modal, Notice, Setting } from "obsidian";
 import type { InstallSummary } from "../exportService";
 import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
@@ -89,6 +89,7 @@ export interface SkillSelectionOption<T> {
 export class SkillSelectionModal<T> extends Modal {
   private readonly selected = new Set<string>();
   private readonly cleanup: () => Promise<void>;
+  private cleanupErrorShown = false;
 
   constructor(
     app: Modal["app"],
@@ -129,15 +130,30 @@ export class SkillSelectionModal<T> extends Modal {
       try {
         await this.onSubmit(this.options.filter((option) => this.selected.has(option.id)).map((option) => option.value));
       } finally {
-        await this.cleanup();
-        this.close();
+        try {
+          await this.cleanupWithNotice();
+        } finally {
+          this.close();
+        }
       }
     }));
   }
 
   onClose(): void {
-    void this.cleanup();
+    void this.cleanupWithNotice().catch(() => undefined);
     this.contentEl.empty();
+  }
+
+  private async cleanupWithNotice(): Promise<void> {
+    try {
+      await this.cleanup();
+    } catch (error) {
+      if (!this.cleanupErrorShown) {
+        this.cleanupErrorShown = true;
+        new Notice(`Failed to clean staging folder: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw error;
+    }
   }
 }
 
@@ -212,7 +228,7 @@ export class DeleteConfirmationModal extends Modal {
   onOpen(): void {
     this.setTitle("Delete skill");
     this.contentEl.createEl("p", {
-      text: `Delete ${this.skill.nickname}? Its copied vault folder and Skill Hub plugin metadata will be permanently deleted.`
+      text: `Delete ${this.skill.nickname}? Copied vault folder "${this.skill.vaultPath}" and Skill Hub plugin metadata will be permanently deleted.`
     });
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
       await this.onConfirm();
@@ -226,14 +242,14 @@ export class DeleteConfirmationModal extends Modal {
 }
 
 export class BulkDeleteConfirmationModal extends Modal {
-  constructor(app: Modal["app"], private readonly count: number, private readonly onConfirm: SubmitHandler<void>) {
+  constructor(app: Modal["app"], private readonly skills: SkillRecord[], private readonly onConfirm: SubmitHandler<void>) {
     super(app);
   }
 
   onOpen(): void {
     this.setTitle("Delete selected skills");
     this.contentEl.createEl("p", {
-      text: `Delete ${this.count} selected skills? Their copied vault folders and Skill Hub plugin metadata will be permanently deleted.`
+      text: `Delete ${this.skills.length} selected skills? Copied vault folders ${this.skills.map((skill) => `"${skill.vaultPath}"`).join(", ")} and Skill Hub plugin metadata will be permanently deleted.`
     });
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setWarning().onClick(async () => {
       await this.onConfirm(undefined);

@@ -7,22 +7,46 @@ import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 import type { SkillRecord } from "../src/types";
 
 const temporaryDirectories: string[] = [];
-const symlinkFailure = vi.hoisted(() => ({ code: undefined as "EPERM" | "EACCES" | undefined }));
+const fsBehavior = vi.hoisted(() => ({
+  symlinkFailureCode: undefined as "EPERM" | "EACCES" | undefined,
+  swapSymlinkForDirectoryBeforeUnlink: false,
+  createDestinationBeforeCopy: false
+}));
 
 vi.mock("fs/promises", async () => {
   const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
   return {
     ...actual,
     symlink: async (...args: Parameters<typeof actual.symlink>) => {
-      if (symlinkFailure.code) {
-        throw Object.assign(new Error("permission denied"), { code: symlinkFailure.code });
+      if (fsBehavior.symlinkFailureCode) {
+        throw Object.assign(new Error("permission denied"), { code: fsBehavior.symlinkFailureCode });
       }
       return actual.symlink(...args);
+    },
+    unlink: async (path: Parameters<typeof actual.unlink>[0]) => {
+      if (fsBehavior.swapSymlinkForDirectoryBeforeUnlink) {
+        fsBehavior.swapSymlinkForDirectoryBeforeUnlink = false;
+        await actual.unlink(path);
+        await actual.mkdir(path, { recursive: true });
+        await actual.writeFile(join(String(path), "preserve.txt"), "preserve", "utf8");
+      }
+      return actual.unlink(path);
+    },
+    mkdir: async (path: Parameters<typeof actual.mkdir>[0], options?: Parameters<typeof actual.mkdir>[1]) => {
+      if (fsBehavior.createDestinationBeforeCopy && String(path).endsWith(join("skills", "writer"))) {
+        fsBehavior.createDestinationBeforeCopy = false;
+        await actual.mkdir(path, { recursive: true });
+        await actual.writeFile(join(String(path), "preserve.txt"), "preserve", "utf8");
+      }
+      return actual.mkdir(path, options as never);
     }
   };
 });
 
 afterEach(async () => {
+  fsBehavior.symlinkFailureCode = undefined;
+  fsBehavior.swapSymlinkForDirectoryBeforeUnlink = false;
+  fsBehavior.createDestinationBeforeCopy = false;
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
 });
 
@@ -184,13 +208,54 @@ describe("SkillExportService", () => {
     expect(registry.data.skills[record.id]?.installCount).toBe(1);
   });
 
+  it("does not recursively remove a real folder swapped in for a checked symlink", async () => {
+    const { vaultPath, record } = await createVaultSkill("writer");
+    const targetPath = await createTargetDirectory();
+    const destination = join(targetPath, ".agents", "skills", record.folderName);
+    await mkdir(join(targetPath, ".agents", "skills"), { recursive: true });
+    await symlink(join(vaultPath, record.vaultPath), destination, "dir");
+    const { service } = createService(record);
+    fsBehavior.swapSymlinkForDirectoryBeforeUnlink = true;
+
+    const summary = await service.installSkills([record], targetPath, {
+      vaultPath,
+      method: "symlink",
+      conflictBehavior: "replace-symlinks"
+    });
+
+    expect(summary.installed).toEqual([]);
+    expect(summary.replaced).toEqual([]);
+    expect(summary.failed).toHaveLength(1);
+    await expect(readFile(join(destination, "preserve.txt"), "utf8")).resolves.toBe("preserve");
+  });
+
+  it("does not overwrite a real destination created after the copy conflict check", async () => {
+    const { vaultPath, record } = await createVaultSkill("writer");
+    const targetPath = await createTargetDirectory();
+    const destination = join(targetPath, ".agents", "skills", record.folderName);
+    const { service } = createService(record);
+    fsBehavior.createDestinationBeforeCopy = true;
+
+    const summary = await service.installSkills([record], targetPath, {
+      vaultPath,
+      method: "copy",
+      conflictBehavior: "skip"
+    });
+
+    expect(summary.installed).toEqual([]);
+    expect(summary.skipped).toEqual([record.id]);
+    expect(summary.failed).toEqual([]);
+    await expect(readFile(join(destination, "preserve.txt"), "utf8")).resolves.toBe("preserve");
+    await expect(readFile(join(destination, "SKILL.md"), "utf8")).rejects.toThrow();
+  });
+
   it.each(["EPERM", "EACCES"] as const)("reports Windows symlink permission failures for %s", async (code) => {
     const { vaultPath, record } = await createVaultSkill("writer");
     const targetPath = await createTargetDirectory();
     const { service } = createService(record);
     const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
-    symlinkFailure.code = code;
+    fsBehavior.symlinkFailureCode = code;
 
     try {
       const summary = await service.installSkills([record], targetPath, {
@@ -209,7 +274,7 @@ describe("SkillExportService", () => {
         }]
       });
     } finally {
-      symlinkFailure.code = undefined;
+      fsBehavior.symlinkFailureCode = undefined;
       Object.defineProperty(process, "platform", platformDescriptor!);
     }
   });
