@@ -7,7 +7,8 @@ import { GitHubSkillDownloader, parseGitHubSkillUrl, type GitHubContentEntry } f
 import { SkillImportService } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { createEmptySkillHubData, SkillRegistry } from "./registry";
-import { DEFAULT_SETTINGS, SkillHubSettingTab } from "./settings";
+import { SkillHubSettingTab } from "./settings";
+import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import { discoverSkills, type DiscoveredSkill } from "./skillDiscovery";
 import type { SkillHubData, SkillRecord, SkillSource } from "./types";
 import { InstallResultModal, SkillSelectionModal, TextInputModal } from "./ui/modals";

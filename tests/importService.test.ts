@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillImportService } from "../src/importService";
 import { runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
-import { DEFAULT_SETTINGS } from "../src/settings";
+import { DEFAULT_SETTINGS } from "../src/settingsDefaults";
 import { discoverSkills } from "../src/skillDiscovery";
 
 const temporaryDirectories: string[] = [];

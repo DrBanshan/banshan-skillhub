@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS } from "./settings";
+import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillCollection, SkillEvent, SkillHubData, SkillRecord } from "./types";
 
 export function createEmptySkillHubData(): SkillHubData {

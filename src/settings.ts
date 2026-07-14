@@ -1,14 +1,7 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type SkillHubPlugin from "./main";
+import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillHubSettings } from "./types";
-
-export const DEFAULT_SETTINGS: SkillHubSettings = {
-  skillFolder: "Skill",
-  installMethod: "symlink",
-  npxExecutionEnabled: false,
-  defaultSymlinkConflictBehavior: "skip",
-  defaultSort: "nickname"
-};
 
 export class SkillHubSettingTab extends PluginSettingTab {
   constructor(app: PluginSettingTab["app"], private readonly skillHubPlugin: SkillHubPlugin) {

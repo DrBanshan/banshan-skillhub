@@ -142,3 +142,76 @@ Exit code: 0. No whitespace errors reported.
 
 - The complete Vitest suite remains blocked by the existing Obsidian module-resolution test harness issue above. The focused regression test, typecheck, and production build pass.
 - Pre-existing untracked files `main.js` and `plugin-concept.txt` were left untouched.
+
+---
+
+# Task 7 Re-Review Fix Report
+
+## Status
+
+DONE
+
+## Fixed Review Finding
+
+- Moved `DEFAULT_SETTINGS` into the runtime-independent `src/settingsDefaults.ts` module.
+- Updated the registry, plugin entry point, settings tab, and service tests to import the pure defaults module.
+- Added a regression test that imports the defaults module directly, preventing future Obsidian UI runtime leakage into service test collection.
+
+## Commands Run
+
+### `npm test` (before fix)
+
+Exit code: 1
+
+```text
+Test Files  2 failed | 4 passed (6)
+Tests  23 passed (23)
+```
+
+`tests/importService.test.ts` and `tests/exportService.test.ts` failed during collection because Vite resolved `obsidian` through `src/settings.ts`.
+
+### `npm test -- tests/settingsDefaults.test.ts` (red)
+
+Exit code: 1
+
+```text
+Error: Failed to load url ../src/settingsDefaults
+```
+
+### `npm test -- tests/settingsDefaults.test.ts` (green)
+
+Exit code: 0
+
+```text
+Test Files  1 passed (1)
+Tests  1 passed (1)
+```
+
+### `npm test`
+
+Exit code: 0
+
+```text
+Test Files  7 passed (7)
+Tests  38 passed (38)
+```
+
+### `npm run typecheck`
+
+Exit code: 0
+
+```text
+> tsc -noEmit -skipLibCheck
+```
+
+### `npm run build`
+
+Exit code: 0
+
+```text
+> tsc -noEmit -skipLibCheck && node esbuild.config.mjs production
+```
+
+## Concerns
+
+- Pre-existing untracked files `main.js` and `plugin-concept.txt` were left untouched.

@@ -1,15 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSkillEvent } from "../src/events";
-
-vi.mock("../src/settings", () => ({
-  DEFAULT_SETTINGS: {
-    skillFolder: "Skill",
-    installMethod: "copy",
-    npxExecutionEnabled: false,
-    defaultSymlinkConflictBehavior: "skip",
-    defaultSort: "nickname"
-  }
-}));
 
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 
