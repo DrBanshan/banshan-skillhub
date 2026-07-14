@@ -4,6 +4,7 @@ import { join } from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   GitHubImportLimitError,
+  GitHubRequestBudget,
   GitHubSkillDownloader,
   InvalidGitHubUrlError,
   MissingSkillsFolderError,
@@ -74,6 +75,38 @@ describe("parseGitHubSkillUrl", () => {
     )).resolves.toEqual({ owner: "owner", repo: "repo", ref: sha, skillsPath: "packages/demo/skills" });
   });
 
+  it("bounds ref probes for long tree URLs", async () => {
+    let probes = 0;
+    const path = Array.from({ length: 30 }, (_, index) => `segment-${index}`).join("/");
+
+    await expect(resolveGitHubSkillUrl(
+      `https://github.com/owner/repo/tree/${path}`,
+      async () => {
+        probes += 1;
+        return false;
+      },
+      { maxProbes: 4 }
+    )).rejects.toThrow(InvalidGitHubUrlError);
+    expect(probes).toBe(4);
+  });
+
+  it("does not probe beyond the shared request budget", async () => {
+    const budget = new GitHubRequestBudget(3);
+    let probes = 0;
+    const path = Array.from({ length: 10 }, (_, index) => `segment-${index}`).join("/");
+
+    await expect(resolveGitHubSkillUrl(
+      `https://github.com/owner/repo/tree/${path}`,
+      async () => {
+        probes += 1;
+        budget.consume("ref probe");
+        return false;
+      },
+      { maxProbes: 10, requestBudget: budget }
+    )).rejects.toThrow(InvalidGitHubUrlError);
+    expect(probes).toBe(3);
+  });
+
   it("uses a direct skills folder as the scan path", () => {
     expect(parseGitHubSkillUrl("https://github.com/owner/repo/tree/main/skills")).toEqual({
       owner: "owner",
@@ -89,6 +122,25 @@ describe("parseGitHubSkillUrl", () => {
 });
 
 describe("GitHubSkillDownloader", () => {
+  it("shares an aggregate request budget with earlier GitHub calls", async () => {
+    const budget = new GitHubRequestBudget(2);
+    let requests = 0;
+    budget.consume("ref probe");
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => {
+        requests += 1;
+        return { status: 200, data: [] };
+      },
+      downloadFile: async () => 0
+    }, {}, budget);
+
+    await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", skillsPath: "skills" })).resolves.toEqual([]);
+    await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", skillsPath: "skills" })).rejects.toThrow(
+      GitHubImportLimitError
+    );
+    expect(requests).toBe(1);
+  });
+
   it("lists only directories directly below the configured skills path", async () => {
     const requests: string[] = [];
     const downloader = new GitHubSkillDownloader({

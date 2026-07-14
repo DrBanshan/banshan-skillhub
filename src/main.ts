@@ -4,7 +4,7 @@ import { join } from "path";
 import { SkillExportService } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
-import { GitHubSkillDownloader, resolveGitHubSkillUrl, type GitHubContentEntry } from "./githubImport";
+import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, type GitHubContentEntry } from "./githubImport";
 import { SkillImportService } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -12,7 +12,7 @@ import { SkillHubSettingTab } from "./settings";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import { discoverSkills, type DiscoveredSkill } from "./skillDiscovery";
 import type { SkillHubData, SkillRecord, SkillSource } from "./types";
-import { InstallResultModal, ManualNpxFallbackModal, SkillSelectionModal, TextInputModal } from "./ui/modals";
+import { InstallResultModal, ManualNpxFallbackModal, SkillSelectionModal } from "./ui/modals";
 import { SkillHubView, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
 import { removeVaultRelativePath, resolveVaultRelativePath } from "./vaultPaths";
 
@@ -66,7 +66,12 @@ export default class SkillHubPlugin extends Plugin {
 
   async importFromGitHub(url: string): Promise<void> {
     try {
-      const location = await resolveGitHubSkillUrl(url, (owner, repo, ref) => this.githubRefExists(owner, repo, ref));
+      const requestBudget = new GitHubRequestBudget();
+      const location = await resolveGitHubSkillUrl(
+        url,
+        (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
+        { requestBudget }
+      );
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
           const response = await requestUrl({ url: `https://api.github.com${path}` });
@@ -78,7 +83,7 @@ export default class SkillHubPlugin extends Plugin {
           await writeFile(destination, buffer);
           return buffer.byteLength;
         }
-      });
+      }, {}, requestBudget);
       const folders = await downloader.listSkillFolders(location);
       if (folders.length === 0) throw new Error("No skill folders were found.");
       new SkillSelectionModal(this.app, folders.map((folder) => ({ id: folder, label: folder, value: folder })), async (selected) => {
@@ -127,31 +132,33 @@ export default class SkillHubPlugin extends Plugin {
       return;
     }
 
+    let stagingPath: string | undefined;
     try {
-      const stagingPath = await runNpxSkillsAdd(command, this.getVaultBasePath());
+      stagingPath = await runNpxSkillsAdd(command, this.getVaultBasePath());
       const discovered = await discoverSkills(stagingPath);
       this.showDiscoveryWarnings(discovered.warnings);
       await this.openImportSelection(discovered.skills, { type: "npx", command }, "npx", stagingPath);
     } catch (error) {
+      await this.cleanupStagingPath(stagingPath);
       this.showError(error);
     }
   }
 
-  installSkills(records: SkillRecord[]): void {
-    new TextInputModal(this.app, "Install selected skills", "/path/to/project", "Install", async (targetDir) => {
-      try {
-        const summary = await new SkillExportService(this.registry).installSkills(records, targetDir, {
-          vaultPath: this.getVaultBasePath(),
-          method: this.data.settings.installMethod,
-          conflictBehavior: this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip"
-        });
-        await this.saveSkillHubData();
-        new InstallResultModal(this.app, summary).open();
-        this.refreshSkillHub();
-      } catch (error) {
-        this.showError(error);
-      }
-    }).open();
+  async installSkills(records: SkillRecord[]): Promise<void> {
+    try {
+      const targetDir = await pickNativeFolder();
+      if (!targetDir) return;
+      const summary = await new SkillExportService(this.registry).installSkills(records, targetDir, {
+        vaultPath: this.getVaultBasePath(),
+        method: this.data.settings.installMethod,
+        conflictBehavior: this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip"
+      });
+      await this.saveSkillHubData();
+      new InstallResultModal(this.app, summary).open();
+      this.refreshSkillHub();
+    } catch (error) {
+      this.showError(error);
+    }
   }
 
   async deleteSkill(record: SkillRecord): Promise<void> {
@@ -256,9 +263,10 @@ export default class SkillHubPlugin extends Plugin {
     if (warnings.length > 0) new Notice(`Skipped ${warnings.length} unreadable SKILL.md file${warnings.length === 1 ? "" : "s"}.`);
   }
 
-  private async githubRefExists(owner: string, repo: string, ref: string): Promise<boolean> {
+  private async githubRefExists(owner: string, repo: string, ref: string, requestBudget: GitHubRequestBudget): Promise<boolean> {
     for (const kind of ["heads", "tags"]) {
       try {
+        requestBudget.consume(`refs/${kind}/${ref}`);
         const response = await requestUrl({
           url: `https://api.github.com/repos/${owner}/${repo}/git/ref/${kind}/${ref.split("/").map(encodeURIComponent).join("/")}`,
           throw: false

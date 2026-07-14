@@ -3,6 +3,7 @@ import { dirname, join } from "path";
 import { discoverSkills, type DiscoveryResult } from "./skillDiscovery";
 
 const GITHUB_CONTENTS_LISTING_LIMIT = 1000;
+const DEFAULT_GITHUB_REF_PROBE_LIMIT = 20;
 const DEFAULT_DOWNLOAD_LIMITS: GitHubDownloadLimits = {
   maxRequests: 200,
   maxFiles: 500,
@@ -19,6 +20,11 @@ export interface GitHubSkillLocation {
 
 export interface ParseGitHubSkillUrlOptions {
   knownRefs?: string[];
+}
+
+export interface ResolveGitHubSkillUrlOptions {
+  maxProbes?: number;
+  requestBudget?: GitHubRequestBudget;
 }
 
 export interface GitHubContentEntry {
@@ -70,6 +76,21 @@ export class GitHubImportLimitError extends Error {
   }
 }
 
+export class GitHubRequestBudget {
+  private requests = 0;
+
+  constructor(readonly maxRequests = DEFAULT_DOWNLOAD_LIMITS.maxRequests) {}
+
+  get remainingRequests(): number {
+    return Math.max(0, this.maxRequests - this.requests);
+  }
+
+  consume(path: string): void {
+    if (this.requests >= this.maxRequests) throw new GitHubImportLimitError(path);
+    this.requests += 1;
+  }
+}
+
 export function parseGitHubSkillUrl(input: string, options: ParseGitHubSkillUrlOptions = {}): GitHubSkillLocation {
   let url: URL;
   try {
@@ -98,14 +119,22 @@ export function parseGitHubSkillUrl(input: string, options: ParseGitHubSkillUrlO
   return { owner, repo, ref, skillsPath };
 }
 
-export async function resolveGitHubSkillUrl(input: string, refExists: GitHubRefExists): Promise<GitHubSkillLocation> {
+export async function resolveGitHubSkillUrl(
+  input: string,
+  refExists: GitHubRefExists,
+  options: ResolveGitHubSkillUrlOptions = {}
+): Promise<GitHubSkillLocation> {
   const fallback = parseGitHubSkillUrl(input);
   if (!fallback.ref) return fallback;
   if (/^[0-9a-f]{40}$/i.test(fallback.ref)) return fallback;
 
   const treeSegments = new URL(input).pathname.split("/").filter(Boolean).slice(3);
-  for (let segmentCount = treeSegments.length; segmentCount > 0; segmentCount -= 1) {
+  const configuredProbeLimit = Math.max(0, Math.floor(options.maxProbes ?? DEFAULT_GITHUB_REF_PROBE_LIMIT));
+  const maxProbes = Math.min(configuredProbeLimit, options.requestBudget?.remainingRequests ?? configuredProbeLimit);
+  let probes = 0;
+  for (let segmentCount = treeSegments.length; segmentCount > 0 && probes < maxProbes; segmentCount -= 1) {
     const candidate = treeSegments.slice(0, segmentCount).join("/");
+    probes += 1;
     if (await refExists(fallback.owner, fallback.repo, candidate)) {
       return parseGitHubSkillUrl(input, { knownRefs: [candidate] });
     }
@@ -125,15 +154,17 @@ function resolveRef(treeSegments: string[], knownRefs?: string[]): string {
 
 export class GitHubSkillDownloader {
   private readonly limits: GitHubDownloadLimits;
-  private requests = 0;
+  private readonly requestBudget: GitHubRequestBudget;
   private files = 0;
   private bytes = 0;
 
   constructor(
     private readonly dependencies: GitHubSkillDownloaderDependencies,
-    limits: Partial<GitHubDownloadLimits> = {}
+    limits: Partial<GitHubDownloadLimits> = {},
+    requestBudget?: GitHubRequestBudget
   ) {
     this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
+    this.requestBudget = requestBudget ?? new GitHubRequestBudget(this.limits.maxRequests);
   }
 
   async listSkillFolders(location: GitHubSkillLocation): Promise<string[]> {
@@ -194,8 +225,7 @@ export class GitHubSkillDownloader {
   }
 
   private consumeRequest(path: string): void {
-    if (this.requests >= this.limits.maxRequests) throw new GitHubImportLimitError(path);
-    this.requests += 1;
+    this.requestBudget.consume(path);
   }
 }
 

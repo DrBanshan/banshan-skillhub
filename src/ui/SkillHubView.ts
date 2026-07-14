@@ -54,7 +54,7 @@ export class SkillHubView extends ItemView {
       new Notice("Select at least one skill to install.");
       return;
     }
-    this.plugin.installSkills(selected);
+    void this.plugin.installSkills(selected);
   }
 
   render(): void {
