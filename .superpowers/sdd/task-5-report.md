@@ -48,3 +48,17 @@ DONE
    - Passed: 1 test file, 7 tests.
 3. Typecheck: `npm run typecheck`
    - Passed: `tsc -noEmit -skipLibCheck` exited 0.
+
+## Re-review Fix: Preserve npx Error When Cleanup Fails
+
+- Made staging cleanup best-effort so a rejected `rm` cannot replace the original `execFile` error.
+- Added a focused regression test that forces staging cleanup to fail and verifies the original `npx failed` error is rethrown.
+
+## Re-review Tests
+
+1. Red: `npm run test -- tests/importService.test.ts`
+   - Failed as expected: `runNpxSkillsAdd > preserves the npx error when staging cleanup fails`; received `Error: cleanup failed` instead of `Error: npx failed`.
+2. Green: `npm run test -- tests/importService.test.ts`
+   - Passed: 1 test file, 8 tests.
+3. Typecheck: `npm run typecheck`
+   - Passed: `tsc -noEmit -skipLibCheck` exited 0.

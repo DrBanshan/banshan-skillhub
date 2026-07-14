@@ -1,7 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillImportService } from "../src/importService";
 import { runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
@@ -9,6 +9,21 @@ import { DEFAULT_SETTINGS } from "../src/settings";
 import { discoverSkills } from "../src/skillDiscovery";
 
 const temporaryDirectories: string[] = [];
+const cleanupFailure = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock("fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
+  return {
+    ...actual,
+    rm: async (path: Parameters<typeof actual.rm>[0], options: Parameters<typeof actual.rm>[1]) => {
+      if (cleanupFailure.enabled && String(path).includes(".skillhub-npx-import-")) {
+        cleanupFailure.enabled = false;
+        throw new Error("cleanup failed");
+      }
+      return actual.rm(path, options);
+    }
+  };
+});
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
@@ -133,5 +148,18 @@ describe("runNpxSkillsAdd", () => {
 
     expect(stagingPath).toBeDefined();
     await expect(access(stagingPath as string)).rejects.toThrow();
+  });
+
+  it("preserves the npx error when staging cleanup fails", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
+    temporaryDirectories.push(cwd);
+    const error = new Error("npx failed");
+    cleanupFailure.enabled = true;
+
+    await expect(
+      runNpxSkillsAdd("npx skills add owner/repo", cwd, async () => {
+        throw error;
+      })
+    ).rejects.toBe(error);
   });
 });

@@ -34,7 +34,7 @@ export async function runNpxSkillsAdd(command: string, cwd: string, execFile: Ex
   try {
     await execFile("npx", parseCommand(command).slice(1), { cwd: stagingPath });
   } catch (error) {
-    await rm(stagingPath, { force: true, recursive: true });
+    await rm(stagingPath, { force: true, recursive: true }).catch(() => undefined);
     throw error;
   }
   return stagingPath;
