@@ -19,6 +19,24 @@ export class SkillRegistry {
 
   deleteSkill(id: string): void {
     delete this.data.skills[id];
+    for (const collection of Object.values(this.data.collections)) {
+      collection.skillIds = collection.skillIds.filter((skillId) => skillId !== id);
+    }
+  }
+
+  updateSkillCollections(skillId: string, collectionIds: string[]): void {
+    const skill = this.data.skills[skillId];
+    if (!skill) return;
+
+    const selectedCollectionIds = new Set(collectionIds);
+    skill.collectionIds = [...selectedCollectionIds];
+    for (const collection of Object.values(this.data.collections)) {
+      if (selectedCollectionIds.has(collection.id)) {
+        if (!collection.skillIds.includes(skillId)) collection.skillIds.push(skillId);
+      } else {
+        collection.skillIds = collection.skillIds.filter((id) => id !== skillId);
+      }
+    }
   }
 
   saveCollection(collection: SkillCollection): void {

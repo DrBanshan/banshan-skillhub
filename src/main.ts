@@ -2,6 +2,7 @@ import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { SkillExportService } from "./exportService";
+import { createSkillEvent } from "./events";
 import { GitHubSkillDownloader, parseGitHubSkillUrl, type GitHubContentEntry } from "./githubImport";
 import { SkillImportService } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
@@ -76,11 +77,17 @@ export default class SkillHubPlugin extends Plugin {
       const folders = await downloader.listSkillFolders(location);
       if (folders.length === 0) throw new Error("No skill folders were found.");
       new SkillSelectionModal(this.app, folders.map((folder) => ({ id: folder, label: folder, value: folder })), async (selected) => {
-        if (selected.length === 0) return;
-        const stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
-        for (const folder of selected) await downloader.downloadSkillFolder(location, folder, stagingPath);
-        const discovered = await discoverSkills(stagingPath);
-        await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
+        let stagingPath: string | undefined;
+        try {
+          if (selected.length === 0) return;
+          stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
+          for (const folder of selected) await downloader.downloadSkillFolder(location, folder, stagingPath);
+          const discovered = await discoverSkills(stagingPath);
+          await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
+        } catch (error) {
+          await this.cleanupStagingPath(stagingPath);
+          this.showError(error);
+        }
       }).open();
     } catch (error) {
       this.showError(error);
@@ -137,6 +144,14 @@ export default class SkillHubPlugin extends Plugin {
     }).open();
   }
 
+  async deleteSkill(record: SkillRecord): Promise<void> {
+    await rm(join(this.getVaultBasePath(), record.vaultPath), { force: true, recursive: true });
+    this.registry.deleteSkill(record.id);
+    this.registry.recordEvent(createSkillEvent("skill_deleted", record.id, { vaultPath: record.vaultPath }));
+    await this.saveSkillHubData();
+    this.refreshSkillHub();
+  }
+
   private async openImportSelection(
     discovered: DiscoveredSkill[],
     source: SkillSource,
@@ -144,25 +159,34 @@ export default class SkillHubPlugin extends Plugin {
     stagingPath?: string
   ): Promise<void> {
     if (discovered.length === 0) {
-      if (stagingPath) await rm(stagingPath, { force: true, recursive: true });
+      await this.cleanupStagingPath(stagingPath);
       new Notice("No valid skills were found.");
       return;
     }
     new SkillSelectionModal(this.app, discovered.map((skill) => ({ id: skill.folderName, label: skill.metadata.name, value: skill })), async (selected) => {
-      if (selected.length === 0) {
-        if (stagingPath) await rm(stagingPath, { force: true, recursive: true });
-        return;
+      try {
+        if (selected.length === 0) {
+          await this.cleanupStagingPath(stagingPath);
+          return;
+        }
+        const result = await new SkillImportService(this.registry, this.data.settings).importDiscoveredSkills(selected, {
+          vaultPath: this.getVaultBasePath(),
+          source,
+          importMethod,
+          stagingPath
+        });
+        await this.saveSkillHubData();
+        this.refreshSkillHub();
+        new Notice(`Imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"}.`);
+      } catch (error) {
+        await this.cleanupStagingPath(stagingPath);
+        this.showError(error);
       }
-      const result = await new SkillImportService(this.registry, this.data.settings).importDiscoveredSkills(selected, {
-        vaultPath: this.getVaultBasePath(),
-        source,
-        importMethod,
-        stagingPath
-      });
-      await this.saveSkillHubData();
-      this.refreshSkillHub();
-      new Notice(`Imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"}.`);
     }).open();
+  }
+
+  private async cleanupStagingPath(stagingPath?: string): Promise<void> {
+    if (stagingPath) await rm(stagingPath, { force: true, recursive: true }).catch(() => undefined);
   }
 
   private getVaultBasePath(): string {

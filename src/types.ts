@@ -20,6 +20,8 @@ export interface SkillRecord {
   vaultPath: string;
   originalName: string;
   nickname: string;
+  emoji?: string;
+  color?: string;
   description: string;
   tags: string[];
   collectionIds: string[];

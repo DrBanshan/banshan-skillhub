@@ -3,7 +3,6 @@ import type { InstallSummary } from "../exportService";
 import type { SkillCollection, SkillRecord } from "../types";
 
 type SubmitHandler<T> = (value: T) => void | Promise<void>;
-type EditableSkillRecord = SkillRecord & { emoji?: string; color?: string };
 
 export class TextInputModal extends Modal {
   private value = "";
@@ -118,7 +117,7 @@ export interface SkillEditValues {
 export class SkillEditModal extends Modal {
   constructor(
     app: Modal["app"],
-    private readonly skill: EditableSkillRecord,
+    private readonly skill: SkillRecord,
     private readonly collections: SkillCollection[],
     private readonly onSubmit: SubmitHandler<SkillEditValues>
   ) {

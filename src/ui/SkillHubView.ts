@@ -4,7 +4,6 @@ import type { SkillRecord } from "../types";
 import { DeleteConfirmationModal, GitHubUrlModal, LocalDirectoryModal, NpxCommandModal, SkillEditModal } from "./modals";
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
-type PresentationSkillRecord = SkillRecord & { emoji?: string; color?: string };
 
 export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
@@ -71,7 +70,7 @@ export class SkillHubView extends ItemView {
     for (const skill of skills) this.renderCard(grid, skill);
   }
 
-  private renderCard(grid: HTMLElement, skill: PresentationSkillRecord): void {
+  private renderCard(grid: HTMLElement, skill: SkillRecord): void {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
@@ -99,10 +98,10 @@ export class SkillHubView extends ItemView {
   private openEditModal(skill: SkillRecord): void {
     new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), async (values) => {
       skill.nickname = values.nickname;
-      (skill as PresentationSkillRecord).emoji = values.emoji;
-      (skill as PresentationSkillRecord).color = values.color;
+      skill.emoji = values.emoji;
+      skill.color = values.color;
       skill.tags = values.tags;
-      skill.collectionIds = values.collectionIds;
+      this.plugin.registry.updateSkillCollections(skill.id, values.collectionIds);
       skill.updatedAt = new Date().toISOString();
       await this.plugin.saveSkillHubData();
       this.render();
@@ -111,10 +110,13 @@ export class SkillHubView extends ItemView {
 
   private openDeleteModal(skill: SkillRecord): void {
     new DeleteConfirmationModal(this.app, skill, async () => {
-      this.plugin.registry.deleteSkill(skill.id);
-      this.selectedSkillIds.delete(skill.id);
-      await this.plugin.saveSkillHubData();
-      this.render();
+      try {
+        await this.plugin.deleteSkill(skill);
+        this.selectedSkillIds.delete(skill.id);
+        this.render();
+      } catch (error) {
+        new Notice(error instanceof Error ? error.message : String(error));
+      }
     }).open();
   }
 
