@@ -6,7 +6,7 @@ An Obsidian plugin for importing, organizing, and installing local AI agent skil
 
 - Import skills from GitHub repositories or local directories.
 - Organize installed skills with names, colors, emojis, tags, and groups.
-- Install selected skills into an agents skills directory using symbolic links.
+- Install selected skills into an agents skills directory using symbolic links or copies.
 - Review skill relationships, coverage, and usage information.
 
 ## Roadmap
