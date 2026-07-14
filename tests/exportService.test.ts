@@ -1,12 +1,26 @@
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillExportService } from "../src/exportService";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 import type { SkillRecord } from "../src/types";
 
 const temporaryDirectories: string[] = [];
+const symlinkFailure = vi.hoisted(() => ({ code: undefined as "EPERM" | "EACCES" | undefined }));
+
+vi.mock("fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
+  return {
+    ...actual,
+    symlink: async (...args: Parameters<typeof actual.symlink>) => {
+      if (symlinkFailure.code) {
+        throw Object.assign(new Error("permission denied"), { code: symlinkFailure.code });
+      }
+      return actual.symlink(...args);
+    }
+  };
+});
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
@@ -103,6 +117,8 @@ describe("SkillExportService", () => {
       method: "symlink",
       conflictBehavior: "replace-symlinks"
     });
+    expect(folderSummary).toMatchObject({ installed: [], skipped: [record.id], replaced: [], failed: [] });
+    await expect(readFile(join(destinationRoot, record.folderName, "preserve.txt"), "utf8")).resolves.toBe("folder");
 
     await rm(join(destinationRoot, record.folderName), { force: true, recursive: true });
     await writeFile(join(destinationRoot, record.folderName), "file", "utf8");
@@ -112,7 +128,6 @@ describe("SkillExportService", () => {
       conflictBehavior: "replace-symlinks"
     });
 
-    expect(folderSummary).toMatchObject({ installed: [], skipped: [record.id], replaced: [], failed: [] });
     expect(fileSummary).toMatchObject({ installed: [], skipped: [record.id], replaced: [], failed: [] });
     await expect(readFile(join(destinationRoot, record.folderName), "utf8")).resolves.toBe("file");
     expect(registry.data.skills[record.id]?.installCount).toBe(0);
@@ -149,5 +164,35 @@ describe("SkillExportService", () => {
     expect(copySkipped).toMatchObject({ installed: [], skipped: [record.id], replaced: [], failed: [] });
     expect(await readlink(destination)).toBe(join(vaultPath, record.vaultPath));
     expect(registry.data.skills[record.id]?.installCount).toBe(1);
+  });
+
+  it.each(["EPERM", "EACCES"] as const)("reports Windows symlink permission failures for %s", async (code) => {
+    const { vaultPath, record } = await createVaultSkill("writer");
+    const targetPath = await createTargetDirectory();
+    const { service } = createService(record);
+    const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    symlinkFailure.code = code;
+
+    try {
+      const summary = await service.installSkills([record], targetPath, {
+        vaultPath,
+        method: "symlink",
+        conflictBehavior: "skip"
+      });
+
+      expect(summary).toMatchObject({
+        installed: [],
+        skipped: [],
+        replaced: [],
+        failed: [{
+          skillId: record.id,
+          reason: "Windows blocked symlink creation. Enable Developer Mode or run Obsidian with elevated permissions."
+        }]
+      });
+    } finally {
+      symlinkFailure.code = undefined;
+      Object.defineProperty(process, "platform", platformDescriptor!);
+    }
   });
 });
