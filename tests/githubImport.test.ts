@@ -140,6 +140,19 @@ describe("GitHubSkillDownloader", () => {
     );
   });
 
+  it("reports a missing selected skill folder from a 404 response", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 404, data: [] }),
+      downloadFile: async () => undefined
+    });
+
+    await expect(
+      downloader.downloadSkillFolder({ owner: "owner", repo: "repo", skillsPath: "skills" }, "writer", destination)
+    ).rejects.toThrow(MissingSkillsFolderError);
+  });
+
   it("rejects truncated listings", async () => {
     const downloader = new GitHubSkillDownloader({
       fetchJson: async () => ({ status: 200, truncated: true, data: [] }),

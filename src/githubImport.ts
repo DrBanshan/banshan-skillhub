@@ -95,7 +95,7 @@ export class GitHubSkillDownloader {
   constructor(private readonly dependencies: GitHubSkillDownloaderDependencies) {}
 
   async listSkillFolders(location: GitHubSkillLocation): Promise<string[]> {
-    const entries = await this.listContents(location, location.skillsPath, true);
+    const entries = await this.listContents(location, location.skillsPath);
     return entries.filter((entry) => entry.type === "dir").map((entry) => entry.name);
   }
 
@@ -108,7 +108,7 @@ export class GitHubSkillDownloader {
   }
 
   private async downloadContents(location: GitHubSkillLocation, path: string, destination: string, selectedPath: string): Promise<void> {
-    const entries = await this.listContents(location, path, false);
+    const entries = await this.listContents(location, path);
     for (const entry of entries) {
       if (!isWithinPath(entry.path, selectedPath)) continue;
 
@@ -124,10 +124,10 @@ export class GitHubSkillDownloader {
     }
   }
 
-  private async listContents(location: GitHubSkillLocation, path: string, rootListing: boolean): Promise<GitHubContentEntry[]> {
+  private async listContents(location: GitHubSkillLocation, path: string): Promise<GitHubContentEntry[]> {
     const query = location.ref ? `?ref=${encodeURIComponent(location.ref)}` : "";
     const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}/contents/${path}${query}`);
-    if (response.status === 404 && rootListing) throw new MissingSkillsFolderError(path);
+    if (response.status === 404) throw new MissingSkillsFolderError(path);
     if (response.status !== 200) throw new Error(`GitHub contents request failed with status ${response.status}`);
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
     return response.data;
