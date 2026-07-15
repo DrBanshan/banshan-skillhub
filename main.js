@@ -613,8 +613,22 @@ var import_promises6 = require("fs/promises");
 var import_path7 = require("path");
 var import_util = require("util");
 var defaultExecFile = async (file, args, options) => {
-  await (0, import_util.promisify)(import_child_process.execFile)(file, args, options);
+  return (0, import_util.promisify)(import_child_process.execFile)(file, args, options);
 };
+function userShell() {
+  var _a, _b;
+  if (process.platform === "win32") return (_a = process.env.ComSpec) != null ? _a : "cmd.exe";
+  return (_b = process.env.SHELL) != null ? _b : "/bin/sh";
+}
+function npxLookupArgs() {
+  if (process.platform === "win32") return ["/d", "/s", "/c", "where npx"];
+  return ["-lc", "command -v npx"];
+}
+function stdoutFromExecResult(result) {
+  if (!result || typeof result !== "object" || !("stdout" in result)) return "";
+  const stdout = result.stdout;
+  return typeof stdout === "string" || Buffer.isBuffer(stdout) ? stdout.toString() : "";
+}
 function parseCommand(command) {
   const tokens = [];
   let token = "";
@@ -677,18 +691,32 @@ function normalizeNpxSkillsCommand(command) {
   return args;
 }
 async function isNpxAvailable(execFile = defaultExecFile) {
+  return await resolveNpxExecutable(execFile) !== void 0;
+}
+async function resolveNpxExecutable(execFile = defaultExecFile) {
+  var _a;
   try {
     await execFile("npx", ["--version"], {});
-    return true;
+    return "npx";
   } catch (e) {
-    return false;
+  }
+  try {
+    const lookupResult = await execFile(userShell(), npxLookupArgs(), {});
+    const executable = (_a = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())) == null ? void 0 : _a.trim();
+    if (!executable) return void 0;
+    await execFile(executable, ["--version"], {});
+    return executable;
+  } catch (e) {
+    return void 0;
   }
 }
 async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   const args = normalizeNpxSkillsCommand(command);
+  const npxExecutable = await resolveNpxExecutable(execFile);
+  if (!npxExecutable) throw new Error("npx is not available.");
   const stagingPath = await (0, import_promises6.mkdtemp)((0, import_path7.join)(cwd, ".skillhub-npx-import-"));
   try {
-    await execFile("npx", args, {
+    await execFile(npxExecutable, args, {
       cwd: stagingPath,
       env: {
         ...process.env,

@@ -7,13 +7,30 @@ import { combineErrors } from "./errors";
 export interface ExecFileOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  shell?: boolean | string;
 }
 
 export type ExecFile = (file: string, args: string[], options: ExecFileOptions) => Promise<unknown>;
 
 const defaultExecFile: ExecFile = async (file, args, options) => {
-  await promisify(execFileCallback)(file, args, options);
+  return promisify(execFileCallback)(file, args, options);
 };
+
+function userShell(): string {
+  if (process.platform === "win32") return process.env.ComSpec ?? "cmd.exe";
+  return process.env.SHELL ?? "/bin/sh";
+}
+
+function npxLookupArgs(): string[] {
+  if (process.platform === "win32") return ["/d", "/s", "/c", "where npx"];
+  return ["-lc", "command -v npx"];
+}
+
+function stdoutFromExecResult(result: unknown): string {
+  if (!result || typeof result !== "object" || !("stdout" in result)) return "";
+  const stdout = (result as { stdout?: unknown }).stdout;
+  return typeof stdout === "string" || Buffer.isBuffer(stdout) ? stdout.toString() : "";
+}
 
 function parseCommand(command: string): string[] {
   const tokens: string[] = [];
@@ -84,20 +101,36 @@ export function normalizeNpxSkillsCommand(command: string): string[] {
 }
 
 export async function isNpxAvailable(execFile: ExecFile = defaultExecFile): Promise<boolean> {
+  return (await resolveNpxExecutable(execFile)) !== undefined;
+}
+
+export async function resolveNpxExecutable(execFile: ExecFile = defaultExecFile): Promise<string | undefined> {
   try {
     await execFile("npx", ["--version"], {});
-    return true;
+    return "npx";
   } catch {
-    return false;
+    // Obsidian can start with a PATH that misses shell-managed Node installs.
+  }
+
+  try {
+    const lookupResult = await execFile(userShell(), npxLookupArgs(), {});
+    const executable = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())?.trim();
+    if (!executable) return undefined;
+    await execFile(executable, ["--version"], {});
+    return executable;
+  } catch {
+    return undefined;
   }
 }
 
 export async function runNpxSkillsAdd(command: string, cwd: string, execFile: ExecFile = defaultExecFile): Promise<string> {
   const args = normalizeNpxSkillsCommand(command);
+  const npxExecutable = await resolveNpxExecutable(execFile);
+  if (!npxExecutable) throw new Error("npx is not available.");
 
   const stagingPath = await mkdtemp(join(cwd, ".skillhub-npx-import-"));
   try {
-    await execFile("npx", args, {
+    await execFile(npxExecutable, args, {
       cwd: stagingPath,
       env: {
         ...process.env,

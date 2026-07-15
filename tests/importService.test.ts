@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillImportService } from "../src/importService";
-import { normalizeNpxSkillsCommand, runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
+import { isNpxAvailable, normalizeNpxSkillsCommand, runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 import { DEFAULT_SETTINGS } from "../src/settingsDefaults";
 import { discoverSkills } from "../src/skillDiscovery";
@@ -227,6 +227,40 @@ describe("validateNpxSkillsCommand", () => {
 });
 
 describe("runNpxSkillsAdd", () => {
+  it("finds npx through the user shell when direct lookup is unavailable", async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+
+    await expect(isNpxAvailable(async (file, args) => {
+      calls.push({ file, args });
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      return { stdout: "/Users/me/.nvm/versions/node/v22/bin/npx\n" };
+    })).resolves.toBe(true);
+
+    expect(calls).toEqual([
+      { file: "npx", args: ["--version"] },
+      { file: process.env.SHELL ?? "/bin/sh", args: ["-lc", "command -v npx"] },
+      { file: "/Users/me/.nvm/versions/node/v22/bin/npx", args: ["--version"] }
+    ]);
+  });
+
+  it("runs npx imports through the shell-resolved executable when direct lookup is unavailable", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
+    temporaryDirectories.push(cwd);
+    const calls: Array<{ file: string; args: string[]; cwd?: string }> = [];
+
+    await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
+      calls.push({ file, args, cwd: options.cwd });
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (file === (process.env.SHELL ?? "/bin/sh")) return { stdout: "/Users/me/.nvm/versions/node/v22/bin/npx\n" };
+      return undefined;
+    });
+
+    expect(calls.at(-1)).toMatchObject({
+      file: "/Users/me/.nvm/versions/node/v22/bin/npx",
+      args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"]
+    });
+  });
+
   it("runs a validated command inside a staging directory below cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
@@ -237,8 +271,9 @@ describe("runNpxSkillsAdd", () => {
     });
 
     expect(stagingPath.startsWith(cwd)).toBe(true);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ file: "npx", args: ["--version"] });
+    expect(calls[1]).toMatchObject({
       file: "npx",
       args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"],
       cwd: stagingPath,
@@ -255,6 +290,7 @@ describe("runNpxSkillsAdd", () => {
     await expect(
       runNpxSkillsAdd("npx skills add owner/repo", cwd, async (_file, _args, options) => {
         stagingPath = options.cwd;
+        if (!options.cwd) return undefined;
         throw error;
       })
     ).rejects.toBe(error);
@@ -271,7 +307,8 @@ describe("runNpxSkillsAdd", () => {
     cleanupFailure.remaining = 1;
 
     await expect(
-      runNpxSkillsAdd("npx skills add owner/repo", cwd, async () => {
+      runNpxSkillsAdd("npx skills add owner/repo", cwd, async (_file, _args, options) => {
+        if (!options.cwd) return undefined;
         throw error;
       })
     ).rejects.toThrow(/npx failed.*staging cleanup failed/i);
