@@ -1,6 +1,7 @@
 import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import { createSkillEvent } from "../events";
 import type SkillHubPlugin from "../main";
+import { collectTagColors } from "../registry";
 import type { SkillCollection, SkillRecord } from "../types";
 import {
   BulkCollectionMembershipModal,
@@ -152,6 +153,7 @@ export class SkillHubView extends ItemView {
   }
 
   private openEditModal(skill: SkillRecord): void {
+    this.plugin.registry.data.tagColors = collectTagColors(this.plugin.registry.data);
     new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), this.getAllTags(), this.plugin.registry.data.tagColors, async (values) => {
       skill.nickname = values.nickname;
       skill.emoji = values.emoji;

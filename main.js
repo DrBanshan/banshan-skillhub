@@ -1428,6 +1428,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     new SkillDetailModal(this.app, skill, Object.values(this.plugin.registry.data.collections)).open();
   }
   openEditModal(skill) {
+    this.plugin.registry.data.tagColors = collectTagColors(this.plugin.registry.data);
     new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), this.getAllTags(), this.plugin.registry.data.tagColors, async (values) => {
       skill.nickname = values.nickname;
       skill.emoji = values.emoji;

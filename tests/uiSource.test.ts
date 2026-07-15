@@ -38,6 +38,7 @@ describe("skill hub UI source", () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
 
     expect(source).toContain("this.plugin.registry.data.tagColors");
+    expect(source).toContain("collectTagColors(this.plugin.registry.data)");
     expect(source).not.toContain("skill.tagColors?.[tag]");
   });
 });

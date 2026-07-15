@@ -36,8 +36,8 @@ describe("skill card color styling", () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
     expect(css).toContain(".skillhub-existing-tag");
-    expect(css).toContain("background: color-mix(in srgb, var(--skillhub-tag-color)");
+    expect(css).toContain("background-color: color-mix(in srgb, var(--skillhub-tag-color)");
     expect(css).toContain(".skillhub-edit-tag:hover");
-    expect(css).toContain("background: var(--background-secondary);");
+    expect(css).toContain("background-color: var(--background-secondary);");
   });
 });
