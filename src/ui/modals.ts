@@ -4,6 +4,8 @@ import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
 
 type SubmitHandler<T> = (value: T) => void | Promise<void>;
+const SKILL_EMOJI_CANDIDATES = ["🧠", "🛠️", "✍️", "🔍", "📚", "🧪", "⚙️", "🚀", "💡", "📊", "🤖", "🧭"];
+const DEFAULT_TAG_COLOR = "#7f8c8d";
 
 export class TextInputModal extends Modal {
   private value = "";
@@ -162,6 +164,7 @@ export interface SkillEditValues {
   emoji: string;
   color: string;
   tags: string[];
+  tagColors: Record<string, string>;
   collectionIds: string[];
 }
 
@@ -180,13 +183,82 @@ export class SkillEditModal extends Modal {
     let nickname = this.skill.nickname;
     let emoji = this.skill.emoji ?? "";
     let color = this.skill.color ?? "#7f8c8d";
-    let tags = this.skill.tags.join(", ");
+    let tagDraft = "";
+    const tags = [...this.skill.tags];
+    const tagColors = { ...(this.skill.tagColors ?? {}) };
     const collectionIds = new Set(this.skill.collectionIds);
+    let emojiInput: { setValue(value: string): unknown } | undefined;
+    let tagInput: { setValue(value: string): unknown; inputEl: HTMLInputElement } | undefined;
 
     new Setting(this.contentEl).setName("Nickname").addText((text) => text.setValue(nickname).onChange((value) => { nickname = value; }));
-    new Setting(this.contentEl).setName("Emoji").addText((text) => text.setValue(emoji).setPlaceholder("Optional").onChange((value) => { emoji = value; }));
+    new Setting(this.contentEl).setName("Emoji").addText((text) => {
+      emojiInput = text;
+      text.setValue(emoji).setPlaceholder("Optional").onChange((value) => {
+        emoji = value;
+        renderEmojiCandidates();
+      });
+    });
+    const emojiCandidatesEl = this.contentEl.createDiv({ cls: "skillhub-emoji-candidates" });
     new Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => { color = value; }));
-    new Setting(this.contentEl).setName("Tags").addText((text) => text.setValue(tags).setPlaceholder("comma-separated").onChange((value) => { tags = value; }));
+    new Setting(this.contentEl).setName("Tags").addText((text) => {
+      tagInput = text;
+      text.setPlaceholder("Add tag and press Enter").onChange((value) => { tagDraft = value; });
+      text.inputEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addTag(tagDraft);
+        }
+      });
+    });
+    const tagsEl = this.contentEl.createDiv({ cls: "skillhub-edit-tags" });
+
+    const renderEmojiCandidates = (): void => {
+      emojiCandidatesEl.empty();
+      for (const candidate of SKILL_EMOJI_CANDIDATES) {
+        const button = emojiCandidatesEl.createEl("button", { text: candidate, cls: "skillhub-emoji-choice" });
+        if (emoji === candidate) button.addClass("is-selected");
+        button.addEventListener("click", () => {
+          emoji = candidate;
+          emojiInput?.setValue(candidate);
+          renderEmojiCandidates();
+        });
+      }
+    };
+
+    const addTag = (rawTag: string): void => {
+      const tag = rawTag.trim();
+      if (!tag || tags.includes(tag)) return;
+      tags.push(tag);
+      tagDraft = "";
+      tagInput?.setValue("");
+      renderTags();
+    };
+
+    const renderTags = (): void => {
+      tagsEl.empty();
+      for (const tag of tags) {
+        const tagEl = tagsEl.createDiv({ cls: "skillhub-edit-tag" });
+        const tagColor = tagColors[tag] ?? DEFAULT_TAG_COLOR;
+        tagEl.style.setProperty("--skillhub-tag-color", tagColor);
+
+        const colorInput = tagEl.createEl("input", { type: "color", cls: "skillhub-tag-color" });
+        colorInput.value = tagColor;
+        colorInput.addEventListener("input", () => {
+          tagColors[tag] = colorInput.value;
+          tagEl.style.setProperty("--skillhub-tag-color", colorInput.value);
+        });
+
+        const tagButton = tagEl.createEl("button", { text: tag, cls: "skillhub-edit-tag-label" });
+        tagButton.addEventListener("click", () => colorInput.click());
+
+        const deleteButton = tagEl.createEl("button", { text: "×", cls: "skillhub-tag-delete", attr: { "aria-label": `Delete ${tag}` } });
+        deleteButton.addEventListener("click", () => {
+          tags.splice(tags.indexOf(tag), 1);
+          delete tagColors[tag];
+          renderTags();
+        });
+      }
+    };
 
     const collectionsEl = this.contentEl.createDiv({ cls: "skillhub-collections" });
     collectionsEl.createEl("h3", { text: "Collections" });
@@ -201,15 +273,20 @@ export class SkillEditModal extends Modal {
     }
 
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
+      addTag(tagDraft);
       await this.onSubmit({
         nickname: nickname.trim() || this.skill.nickname,
         emoji: emoji.trim(),
         color,
-        tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        tags,
+        tagColors: Object.fromEntries(tags.filter((tag) => tagColors[tag]).map((tag) => [tag, tagColors[tag]])),
         collectionIds: [...collectionIds]
       });
       this.close();
     }));
+
+    renderEmojiCandidates();
+    renderTags();
   }
 
   onClose(): void {

@@ -135,10 +135,9 @@ export class SkillHubView extends ItemView {
     }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
     if (skill.originalName !== skill.nickname) card.createEl("span", { cls: "skillhub-original-name", text: skill.originalName });
-    card.createEl("p", { text: skill.description || "No description provided." });
     const chips = card.createDiv({ cls: "skillhub-chips" });
     chips.createEl("span", { cls: "skillhub-chip", text: skill.source.type });
-    for (const tag of skill.tags) chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    for (const tag of skill.tags) this.renderTagChip(chips, skill, tag);
     if (skill.warnings.length > 0) {
       chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
     }
@@ -159,11 +158,21 @@ export class SkillHubView extends ItemView {
       skill.emoji = values.emoji;
       skill.color = values.color;
       skill.tags = values.tags;
+      skill.tagColors = values.tagColors;
       this.plugin.registry.updateSkillCollections(skill.id, values.collectionIds);
       skill.updatedAt = new Date().toISOString();
       await this.plugin.saveSkillHubData();
       this.render();
     }).open();
+  }
+
+  private renderTagChip(chips: HTMLElement, skill: SkillRecord, tag: string): void {
+    const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    const tagColor = skill.tagColors?.[tag];
+    if (tagColor) {
+      chip.addClass("has-color");
+      chip.style.setProperty("--skillhub-tag-color", tagColor);
+    }
   }
 
   private openDeleteModal(skill: SkillRecord): void {

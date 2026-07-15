@@ -856,6 +856,8 @@ function createCleanupOnce(cleanup) {
 }
 
 // src/ui/modals.ts
+var SKILL_EMOJI_CANDIDATES = ["\u{1F9E0}", "\u{1F6E0}\uFE0F", "\u270D\uFE0F", "\u{1F50D}", "\u{1F4DA}", "\u{1F9EA}", "\u2699\uFE0F", "\u{1F680}", "\u{1F4A1}", "\u{1F4CA}", "\u{1F916}", "\u{1F9ED}"];
+var DEFAULT_TAG_COLOR = "#7f8c8d";
 var TextInputModal = class extends import_obsidian2.Modal {
   constructor(app, title, placeholder, submitText, onSubmit) {
     super(app);
@@ -977,25 +979,87 @@ var SkillEditModal = class extends import_obsidian2.Modal {
     this.onSubmit = onSubmit;
   }
   onOpen() {
-    var _a, _b;
+    var _a, _b, _c;
     this.setTitle(`Edit ${this.skill.nickname}`);
     let nickname = this.skill.nickname;
     let emoji = (_a = this.skill.emoji) != null ? _a : "";
     let color = (_b = this.skill.color) != null ? _b : "#7f8c8d";
-    let tags = this.skill.tags.join(", ");
+    let tagDraft = "";
+    const tags = [...this.skill.tags];
+    const tagColors = { ...(_c = this.skill.tagColors) != null ? _c : {} };
     const collectionIds = new Set(this.skill.collectionIds);
+    let emojiInput;
+    let tagInput;
     new import_obsidian2.Setting(this.contentEl).setName("Nickname").addText((text) => text.setValue(nickname).onChange((value) => {
       nickname = value;
     }));
-    new import_obsidian2.Setting(this.contentEl).setName("Emoji").addText((text) => text.setValue(emoji).setPlaceholder("Optional").onChange((value) => {
-      emoji = value;
-    }));
+    new import_obsidian2.Setting(this.contentEl).setName("Emoji").addText((text) => {
+      emojiInput = text;
+      text.setValue(emoji).setPlaceholder("Optional").onChange((value) => {
+        emoji = value;
+        renderEmojiCandidates();
+      });
+    });
+    const emojiCandidatesEl = this.contentEl.createDiv({ cls: "skillhub-emoji-candidates" });
     new import_obsidian2.Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => {
       color = value;
     }));
-    new import_obsidian2.Setting(this.contentEl).setName("Tags").addText((text) => text.setValue(tags).setPlaceholder("comma-separated").onChange((value) => {
-      tags = value;
-    }));
+    new import_obsidian2.Setting(this.contentEl).setName("Tags").addText((text) => {
+      tagInput = text;
+      text.setPlaceholder("Add tag and press Enter").onChange((value) => {
+        tagDraft = value;
+      });
+      text.inputEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addTag(tagDraft);
+        }
+      });
+    });
+    const tagsEl = this.contentEl.createDiv({ cls: "skillhub-edit-tags" });
+    const renderEmojiCandidates = () => {
+      emojiCandidatesEl.empty();
+      for (const candidate of SKILL_EMOJI_CANDIDATES) {
+        const button = emojiCandidatesEl.createEl("button", { text: candidate, cls: "skillhub-emoji-choice" });
+        if (emoji === candidate) button.addClass("is-selected");
+        button.addEventListener("click", () => {
+          emoji = candidate;
+          emojiInput == null ? void 0 : emojiInput.setValue(candidate);
+          renderEmojiCandidates();
+        });
+      }
+    };
+    const addTag = (rawTag) => {
+      const tag = rawTag.trim();
+      if (!tag || tags.includes(tag)) return;
+      tags.push(tag);
+      tagDraft = "";
+      tagInput == null ? void 0 : tagInput.setValue("");
+      renderTags();
+    };
+    const renderTags = () => {
+      var _a2;
+      tagsEl.empty();
+      for (const tag of tags) {
+        const tagEl = tagsEl.createDiv({ cls: "skillhub-edit-tag" });
+        const tagColor = (_a2 = tagColors[tag]) != null ? _a2 : DEFAULT_TAG_COLOR;
+        tagEl.style.setProperty("--skillhub-tag-color", tagColor);
+        const colorInput = tagEl.createEl("input", { type: "color", cls: "skillhub-tag-color" });
+        colorInput.value = tagColor;
+        colorInput.addEventListener("input", () => {
+          tagColors[tag] = colorInput.value;
+          tagEl.style.setProperty("--skillhub-tag-color", colorInput.value);
+        });
+        const tagButton = tagEl.createEl("button", { text: tag, cls: "skillhub-edit-tag-label" });
+        tagButton.addEventListener("click", () => colorInput.click());
+        const deleteButton = tagEl.createEl("button", { text: "\xD7", cls: "skillhub-tag-delete", attr: { "aria-label": `Delete ${tag}` } });
+        deleteButton.addEventListener("click", () => {
+          tags.splice(tags.indexOf(tag), 1);
+          delete tagColors[tag];
+          renderTags();
+        });
+      }
+    };
     const collectionsEl = this.contentEl.createDiv({ cls: "skillhub-collections" });
     collectionsEl.createEl("h3", { text: "Collections" });
     for (const collection of this.collections) {
@@ -1008,15 +1072,19 @@ var SkillEditModal = class extends import_obsidian2.Modal {
       });
     }
     new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
+      addTag(tagDraft);
       await this.onSubmit({
         nickname: nickname.trim() || this.skill.nickname,
         emoji: emoji.trim(),
         color,
-        tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        tags,
+        tagColors: Object.fromEntries(tags.filter((tag) => tagColors[tag]).map((tag) => [tag, tagColors[tag]])),
         collectionIds: [...collectionIds]
       });
       this.close();
     }));
+    renderEmojiCandidates();
+    renderTags();
   }
   onClose() {
     this.contentEl.empty();
@@ -1316,10 +1384,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
     if (skill.originalName !== skill.nickname) card.createEl("span", { cls: "skillhub-original-name", text: skill.originalName });
-    card.createEl("p", { text: skill.description || "No description provided." });
     const chips = card.createDiv({ cls: "skillhub-chips" });
     chips.createEl("span", { cls: "skillhub-chip", text: skill.source.type });
-    for (const tag of skill.tags) chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    for (const tag of skill.tags) this.renderTagChip(chips, skill, tag);
     if (skill.warnings.length > 0) {
       chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
     }
@@ -1337,11 +1404,21 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       skill.emoji = values.emoji;
       skill.color = values.color;
       skill.tags = values.tags;
+      skill.tagColors = values.tagColors;
       this.plugin.registry.updateSkillCollections(skill.id, values.collectionIds);
       skill.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
       await this.plugin.saveSkillHubData();
       this.render();
     }).open();
+  }
+  renderTagChip(chips, skill, tag) {
+    var _a;
+    const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    const tagColor = (_a = skill.tagColors) == null ? void 0 : _a[tag];
+    if (tagColor) {
+      chip.addClass("has-color");
+      chip.style.setProperty("--skillhub-tag-color", tagColor);
+    }
   }
   openDeleteModal(skill) {
     new DeleteConfirmationModal(this.app, skill, async () => {

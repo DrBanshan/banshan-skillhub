@@ -25,6 +25,7 @@ export interface SkillRecord {
   color?: string;
   description: string;
   tags: string[];
+  tagColors?: Record<string, string>;
   collectionIds: string[];
   source: SkillSource;
   importMethod: "local" | "github" | "npx";

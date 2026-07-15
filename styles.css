@@ -49,7 +49,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 156px;
+  min-height: 118px;
   padding: 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
@@ -95,6 +95,12 @@
   font-size: var(--font-ui-smaller);
 }
 
+.skillhub-chip.has-color {
+  background: color-mix(in srgb, var(--skillhub-tag-color) 24%, var(--background-modifier-hover));
+  border: 1px solid color-mix(in srgb, var(--skillhub-tag-color) 56%, transparent);
+  color: var(--text-normal);
+}
+
 .skillhub-chip.is-warning,
 .skillhub-error {
   color: var(--text-error);
@@ -120,11 +126,69 @@
 }
 
 .skillhub-selection-list,
-.skillhub-collections {
+.skillhub-collections,
+.skillhub-emoji-candidates,
+.skillhub-edit-tags {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 12px 0;
+}
+
+.skillhub-emoji-candidates,
+.skillhub-edit-tags {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 0;
+}
+
+.skillhub-emoji-choice,
+.skillhub-edit-tag {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.skillhub-emoji-choice {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 3px 6px;
+  font-size: 18px;
+}
+
+.skillhub-emoji-choice.is-selected {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent-hover);
+}
+
+.skillhub-edit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--skillhub-tag-color) 20%, var(--background-secondary));
+  border-color: color-mix(in srgb, var(--skillhub-tag-color) 55%, var(--background-modifier-border));
+}
+
+.skillhub-edit-tag-label,
+.skillhub-tag-delete {
+  border: 0;
+  background: transparent;
+  color: var(--text-normal);
+  box-shadow: none;
+  padding: 0;
+}
+
+.skillhub-tag-delete {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.skillhub-tag-color {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .skillhub-selection-item {
