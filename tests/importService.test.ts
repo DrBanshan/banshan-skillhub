@@ -219,6 +219,12 @@ describe("validateNpxSkillsCommand", () => {
     ]);
   });
 
+  it("accepts the skills.sh single-skill npx command", () => {
+    expect(normalizeNpxSkillsCommand("npx skills add https://github.com/vercel-labs/skills --skill find-skills")).toEqual([
+      "skills", "add", "https://github.com/vercel-labs/skills", "--skill", "find-skills", "--agent", "codex", "--yes", "--copy"
+    ]);
+  });
+
   it("adds codex when another agent target does not guarantee .agents/skills output", () => {
     expect(normalizeNpxSkillsCommand("npx skills add owner/repo --agent claude-code --all --yes --copy")).toEqual([
       "skills", "add", "owner/repo", "--agent", "claude-code", "--all", "--yes", "--copy", "--agent", "codex"
@@ -227,18 +233,40 @@ describe("validateNpxSkillsCommand", () => {
 });
 
 describe("runNpxSkillsAdd", () => {
-  it("finds npx through the user shell when direct lookup is unavailable", async () => {
+  it("finds npx through the user shell and verifies it with its bin directory on PATH", async () => {
+    const calls: Array<{ file: string; args: string[]; path?: string }> = [];
+    const npxPath = "/Users/me/.nvm/versions/node/v22/bin/npx";
+    const npxBin = "/Users/me/.nvm/versions/node/v22/bin";
+
+    await expect(isNpxAvailable(async (file, args, options) => {
+      calls.push({ file, args, path: options.env?.PATH });
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (file === npxPath && !options.env?.PATH?.startsWith(npxBin)) throw new Error("node not found");
+      return { stdout: `${npxPath}\n` };
+    })).resolves.toBe(true);
+
+    expect(calls).toEqual([
+      { file: "npx", args: ["--version"], path: undefined },
+      { file: process.env.SHELL ?? "/bin/sh", args: ["-lc", "command -v npx"], path: undefined },
+      { file: npxPath, args: ["--version"], path: `${npxBin}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}` }
+    ]);
+  });
+
+  it("falls back to an interactive shell lookup for desktop-launched Obsidian environments", async () => {
+    const shell = process.env.SHELL ?? "/bin/sh";
     const calls: Array<{ file: string; args: string[] }> = [];
 
     await expect(isNpxAvailable(async (file, args) => {
       calls.push({ file, args });
       if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (file === shell && args.join(" ") === "-lc command -v npx") return { stdout: "" };
       return { stdout: "/Users/me/.nvm/versions/node/v22/bin/npx\n" };
     })).resolves.toBe(true);
 
     expect(calls).toEqual([
       { file: "npx", args: ["--version"] },
-      { file: process.env.SHELL ?? "/bin/sh", args: ["-lc", "command -v npx"] },
+      { file: shell, args: ["-lc", "command -v npx"] },
+      { file: shell, args: ["-lic", "command -v npx"] },
       { file: "/Users/me/.nvm/versions/node/v22/bin/npx", args: ["--version"] }
     ]);
   });
@@ -246,19 +274,22 @@ describe("runNpxSkillsAdd", () => {
   it("runs npx imports through the shell-resolved executable when direct lookup is unavailable", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
-    const calls: Array<{ file: string; args: string[]; cwd?: string }> = [];
+    const calls: Array<{ file: string; args: string[]; cwd?: string; path?: string }> = [];
+    const npxPath = "/Users/me/.nvm/versions/node/v22/bin/npx";
+    const npxBin = "/Users/me/.nvm/versions/node/v22/bin";
 
     await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
-      calls.push({ file, args, cwd: options.cwd });
+      calls.push({ file, args, cwd: options.cwd, path: options.env?.PATH });
       if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
-      if (file === (process.env.SHELL ?? "/bin/sh")) return { stdout: "/Users/me/.nvm/versions/node/v22/bin/npx\n" };
+      if (file === (process.env.SHELL ?? "/bin/sh")) return { stdout: `${npxPath}\n` };
       return undefined;
     });
 
     expect(calls.at(-1)).toMatchObject({
-      file: "/Users/me/.nvm/versions/node/v22/bin/npx",
+      file: npxPath,
       args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"]
     });
+    expect(calls.at(-1)?.path?.startsWith(npxBin)).toBe(true);
   });
 
   it("runs a validated command inside a staging directory below cwd", async () => {

@@ -621,8 +621,8 @@ function userShell() {
   return (_b = process.env.SHELL) != null ? _b : "/bin/sh";
 }
 function npxLookupArgs() {
-  if (process.platform === "win32") return ["/d", "/s", "/c", "where npx"];
-  return ["-lc", "command -v npx"];
+  if (process.platform === "win32") return [["/d", "/s", "/c", "where npx"]];
+  return [["-lc", "command -v npx"], ["-lic", "command -v npx"]];
 }
 function stdoutFromExecResult(result) {
   if (!result || typeof result !== "object" || !("stdout" in result)) return "";
@@ -697,18 +697,21 @@ async function resolveNpxExecutable(execFile = defaultExecFile) {
   var _a;
   try {
     await execFile("npx", ["--version"], {});
-    return "npx";
+    return { file: "npx" };
   } catch (e) {
   }
-  try {
-    const lookupResult = await execFile(userShell(), npxLookupArgs(), {});
-    const executable = (_a = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())) == null ? void 0 : _a.trim();
-    if (!executable) return void 0;
-    await execFile(executable, ["--version"], {});
-    return executable;
-  } catch (e) {
-    return void 0;
+  for (const lookupArgs of npxLookupArgs()) {
+    try {
+      const lookupResult = await execFile(userShell(), lookupArgs, {});
+      const executable = (_a = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())) == null ? void 0 : _a.trim();
+      if (!executable) continue;
+      const env = envWithExecutablePath(executable);
+      await execFile(executable, ["--version"], { env });
+      return { file: executable, env };
+    } catch (e) {
+    }
   }
+  return void 0;
 }
 async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   const args = normalizeNpxSkillsCommand(command);
@@ -716,10 +719,11 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   if (!npxExecutable) throw new Error("npx is not available.");
   const stagingPath = await (0, import_promises6.mkdtemp)((0, import_path7.join)(cwd, ".skillhub-npx-import-"));
   try {
-    await execFile(npxExecutable, args, {
+    await execFile(npxExecutable.file, args, {
       cwd: stagingPath,
       env: {
         ...process.env,
+        ...npxExecutable.env,
         DO_NOT_TRACK: "1",
         DISABLE_TELEMETRY: "1",
         CI: "1"
@@ -734,6 +738,13 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
     throw error;
   }
   return stagingPath;
+}
+function envWithExecutablePath(executable) {
+  const executableDir = (0, import_path7.dirname)(executable);
+  return {
+    ...process.env,
+    PATH: [executableDir, process.env.PATH].filter(Boolean).join(import_path7.delimiter)
+  };
 }
 
 // src/settingsDefaults.ts
