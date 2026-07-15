@@ -101,7 +101,7 @@ export function normalizeNpxSkillsCommand(command: string): string[] {
   if (!hasSkill) args.push("--skill", "*");
   if (!hasYes) args.push("--yes");
   if (!hasCopy) args.push("--copy");
-  return args;
+  return ["--yes", ...args];
 }
 
 export async function isNpxAvailable(execFile: ExecFile = defaultExecFile): Promise<boolean> {

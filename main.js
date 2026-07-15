@@ -688,7 +688,7 @@ function normalizeNpxSkillsCommand(command) {
   if (!hasSkill) args.push("--skill", "*");
   if (!hasYes) args.push("--yes");
   if (!hasCopy) args.push("--copy");
-  return args;
+  return ["--yes", ...args];
 }
 async function isNpxAvailable(execFile = defaultExecFile) {
   return await resolveNpxExecutable(execFile) !== void 0;

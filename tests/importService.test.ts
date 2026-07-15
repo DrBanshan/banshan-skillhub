@@ -209,25 +209,25 @@ describe("validateNpxSkillsCommand", () => {
 
   it("appends deterministic project-scoped import flags", () => {
     expect(normalizeNpxSkillsCommand("npx skills add owner/repo")).toEqual([
-      "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"
+      "--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"
     ]);
   });
 
   it("preserves requested skills and parses quoted names", () => {
     expect(normalizeNpxSkillsCommand('npx skills add owner/repo --skill "Convex Best Practices" --agent codex -y --copy')).toEqual([
-      "skills", "add", "owner/repo", "--skill", "Convex Best Practices", "--agent", "codex", "-y", "--copy"
+      "--yes", "skills", "add", "owner/repo", "--skill", "Convex Best Practices", "--agent", "codex", "-y", "--copy"
     ]);
   });
 
   it("accepts the skills.sh single-skill npx command", () => {
     expect(normalizeNpxSkillsCommand("npx skills add https://github.com/vercel-labs/skills --skill find-skills")).toEqual([
-      "skills", "add", "https://github.com/vercel-labs/skills", "--skill", "find-skills", "--agent", "codex", "--yes", "--copy"
+      "--yes", "skills", "add", "https://github.com/vercel-labs/skills", "--skill", "find-skills", "--agent", "codex", "--yes", "--copy"
     ]);
   });
 
   it("adds codex when another agent target does not guarantee .agents/skills output", () => {
     expect(normalizeNpxSkillsCommand("npx skills add owner/repo --agent claude-code --all --yes --copy")).toEqual([
-      "skills", "add", "owner/repo", "--agent", "claude-code", "--all", "--yes", "--copy", "--agent", "codex"
+      "--yes", "skills", "add", "owner/repo", "--agent", "claude-code", "--all", "--yes", "--copy", "--agent", "codex"
     ]);
   });
 });
@@ -287,7 +287,7 @@ describe("runNpxSkillsAdd", () => {
 
     expect(calls.at(-1)).toMatchObject({
       file: npxPath,
-      args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"]
+      args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"]
     });
     expect(calls.at(-1)?.path?.startsWith(npxBin)).toBe(true);
   });
@@ -306,7 +306,7 @@ describe("runNpxSkillsAdd", () => {
     expect(calls[0]).toMatchObject({ file: "npx", args: ["--version"] });
     expect(calls[1]).toMatchObject({
       file: "npx",
-      args: ["skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"],
+      args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"],
       cwd: stagingPath,
       env: { DO_NOT_TRACK: "1", DISABLE_TELEMETRY: "1", CI: "1", PATH: process.env.PATH }
     });
