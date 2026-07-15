@@ -180,8 +180,17 @@
 }
 
 .skillhub-tag-delete {
-  color: var(--text-muted);
+  color: var(--text-error);
   font-size: var(--font-ui-smaller);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.skillhub-edit-tag:hover .skillhub-tag-delete,
+.skillhub-edit-tag:focus-within .skillhub-tag-delete {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .skillhub-tag-color {

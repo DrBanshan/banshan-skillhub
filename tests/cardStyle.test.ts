@@ -20,4 +20,13 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-card:focus-within .skillhub-card-actions");
     expect(css).toContain("opacity: 1;");
   });
+
+  it("shows the tag delete control only when interacting with the tag", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-tag-delete");
+    expect(css).toContain(".skillhub-edit-tag:hover .skillhub-tag-delete");
+    expect(css).toContain(".skillhub-edit-tag:focus-within .skillhub-tag-delete");
+    expect(css).toContain("color: var(--text-error);");
+  });
 });
