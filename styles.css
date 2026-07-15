@@ -173,11 +173,6 @@
 .skillhub-edit-tag {
   position: relative;
   overflow: hidden;
-  background-color: var(--skillhub-tag-color);
-}
-
-.skillhub-edit-tag:hover {
-  background-color: var(--background-secondary);
 }
 
 .skillhub-existing-tag {
@@ -194,11 +189,16 @@
   padding: 2px 9px;
   border-radius: 6px;
   border: 0;
-  background: transparent;
+  background-color: var(--skillhub-tag-color);
   color: var(--text-normal);
   box-shadow: none;
   cursor: pointer;
   overflow: hidden;
+}
+
+.skillhub-edit-tag:hover .skillhub-edit-tag-button,
+.skillhub-edit-tag:focus-within .skillhub-edit-tag-button {
+  background-color: var(--background-secondary);
 }
 
 .skillhub-tag-text,

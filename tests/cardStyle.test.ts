@@ -37,6 +37,9 @@ describe("skill card color styling", () => {
 
     expect(css).toContain(".skillhub-existing-tag");
     expect(css).toContain("background-color: var(--skillhub-tag-color);");
+    expect(css).toContain(".skillhub-edit-tag-button");
+    expect(css).toContain(".skillhub-edit-tag:hover .skillhub-edit-tag-button");
+    expect(css).toContain(".skillhub-edit-tag:focus-within .skillhub-edit-tag-button");
     expect(css).toContain(".skillhub-edit-tag:hover");
     expect(css).toContain("background-color: var(--background-secondary);");
   });
