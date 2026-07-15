@@ -24,9 +24,11 @@ describe("skill card color styling", () => {
   it("shows the tag delete control only when interacting with the tag", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".skillhub-tag-delete");
-    expect(css).toContain(".skillhub-edit-tag:hover .skillhub-tag-delete");
-    expect(css).toContain(".skillhub-edit-tag:focus-within .skillhub-tag-delete");
+    expect(css).toContain(".skillhub-tag-delete-icon");
+    expect(css).toContain(".skillhub-edit-tag:hover .skillhub-tag-delete-icon");
+    expect(css).toContain(".skillhub-edit-tag-button:focus-visible .skillhub-tag-delete-icon");
+    expect(css).toContain("transform: translateX(100%);");
+    expect(css).toContain("transform: translateX(0);");
     expect(css).toContain("color: var(--text-error);");
   });
 });

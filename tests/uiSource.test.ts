@@ -21,7 +21,8 @@ describe("skill hub UI source", () => {
 
     expect(source).toContain("event.key === \"Enter\"");
     expect(source).toContain("skillhub-edit-tags");
-    expect(source).toContain("skillhub-tag-delete");
+    expect(source).toContain("skillhub-tag-delete-icon");
+    expect(source).toContain("contextmenu");
     expect(source).toContain("tagColors");
   });
 });

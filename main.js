@@ -1050,13 +1050,17 @@ var SkillEditModal = class extends import_obsidian2.Modal {
           tagColors[tag] = colorInput.value;
           tagEl.style.setProperty("--skillhub-tag-color", colorInput.value);
         });
-        const tagButton = tagEl.createEl("button", { text: tag, cls: "skillhub-edit-tag-label" });
-        tagButton.addEventListener("click", () => colorInput.click());
-        const deleteButton = tagEl.createEl("button", { text: "\xD7", cls: "skillhub-tag-delete", attr: { "aria-label": `Delete ${tag}` } });
-        deleteButton.addEventListener("click", () => {
+        const tagButton = tagEl.createEl("button", { cls: "skillhub-edit-tag-button", attr: { "aria-label": `Delete ${tag}` } });
+        tagButton.createEl("span", { text: tag, cls: "skillhub-tag-text" });
+        tagButton.createEl("span", { text: "\xD7", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
+        tagButton.addEventListener("click", () => {
           tags.splice(tags.indexOf(tag), 1);
           delete tagColors[tag];
           renderTags();
+        });
+        tagButton.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          colorInput.click();
         });
       }
     };
