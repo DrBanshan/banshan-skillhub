@@ -56,6 +56,15 @@
   background: color-mix(in srgb, var(--skillhub-card-color, var(--background-secondary)) 18%, var(--background-secondary));
   border-color: color-mix(in srgb, var(--skillhub-card-color, var(--background-modifier-border)) 62%, var(--background-modifier-border));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--skillhub-card-color, transparent) 24%, transparent);
+  transform-origin: center;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  z-index: 0;
+}
+
+.skillhub-card:hover,
+.skillhub-card:focus-within {
+  transform: scale(1.02);
+  z-index: 1;
 }
 
 .skillhub-card.is-selected {
@@ -93,6 +102,15 @@
 
 .skillhub-card-actions {
   margin-top: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.skillhub-card:hover .skillhub-card-actions,
+.skillhub-card:focus-within .skillhub-card-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .skillhub-empty {
