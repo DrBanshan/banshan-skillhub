@@ -1108,7 +1108,7 @@ var SkillEditModal = class extends import_obsidian2.Modal {
         emoji: emoji.trim(),
         color,
         tags,
-        tagColors: Object.fromEntries(tags.filter((tag) => tagColors[tag]).map((tag) => [tag, tagColors[tag]])),
+        tagColors: Object.fromEntries([...knownTags].filter((tag) => tagColors[tag]).map((tag) => [tag, tagColors[tag]])),
         collectionIds: [...collectionIds]
       });
       this.close();

@@ -41,4 +41,11 @@ describe("skill hub UI source", () => {
     expect(source).toContain("collectTagColors(this.plugin.registry.data)");
     expect(source).not.toContain("skill.tagColors?.[tag]");
   });
+
+  it("keeps colors for existing tags that are not added to the edited skill", async () => {
+    const source = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("tagColors: Object.fromEntries([...knownTags].filter((tag) => tagColors[tag])");
+    expect(source).not.toContain("tagColors: Object.fromEntries(tags.filter((tag) => tagColors[tag])");
+  });
 });
