@@ -136,7 +136,6 @@ export class SkillHubView extends ItemView {
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
     if (skill.originalName !== skill.nickname) card.createEl("span", { cls: "skillhub-original-name", text: skill.originalName });
     const chips = card.createDiv({ cls: "skillhub-chips" });
-    chips.createEl("span", { cls: "skillhub-chip", text: skill.source.type });
     for (const tag of skill.tags) this.renderTagChip(chips, skill, tag);
     if (skill.warnings.length > 0) {
       chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });

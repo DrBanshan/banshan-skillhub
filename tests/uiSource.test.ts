@@ -9,6 +9,12 @@ describe("skill hub UI source", () => {
     expect(source).not.toContain("card.createEl(\"p\"");
   });
 
+  it("does not render import sources as skill card tags", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("skill.source.type");
+  });
+
   it("offers skill-related emoji candidates in the edit modal", async () => {
     const source = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 

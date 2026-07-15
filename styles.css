@@ -176,6 +176,10 @@
   background: color-mix(in srgb, var(--skillhub-tag-color) 20%, var(--background-secondary));
 }
 
+.skillhub-edit-tag:hover {
+  background: var(--background-secondary);
+}
+
 .skillhub-existing-tag {
   padding: 2px 8px;
   border: 0;

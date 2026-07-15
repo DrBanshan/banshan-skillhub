@@ -31,4 +31,13 @@ describe("skill card color styling", () => {
     expect(css).toContain("transform: translateX(0);");
     expect(css).toContain("color: var(--text-error);");
   });
+
+  it("shows edit tag colors except while hovering current skill tags", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-existing-tag");
+    expect(css).toContain("background: color-mix(in srgb, var(--skillhub-tag-color)");
+    expect(css).toContain(".skillhub-edit-tag:hover");
+    expect(css).toContain("background: var(--background-secondary);");
+  });
 });
