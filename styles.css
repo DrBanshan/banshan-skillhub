@@ -128,7 +128,9 @@
 .skillhub-selection-list,
 .skillhub-collections,
 .skillhub-emoji-candidates,
-.skillhub-edit-tags {
+.skillhub-edit-tags,
+.skillhub-current-tags,
+.skillhub-existing-tags {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -142,8 +144,15 @@
   margin-top: 0;
 }
 
+.skillhub-current-tags h3,
+.skillhub-existing-tags h3 {
+  margin: 0;
+  font-size: var(--font-ui-small);
+}
+
 .skillhub-emoji-choice,
-.skillhub-edit-tag {
+.skillhub-edit-tag,
+.skillhub-existing-tag {
   border-radius: 6px;
   background: var(--background-secondary);
 }
@@ -165,6 +174,14 @@
   position: relative;
   overflow: hidden;
   background: color-mix(in srgb, var(--skillhub-tag-color) 20%, var(--background-secondary));
+}
+
+.skillhub-existing-tag {
+  padding: 2px 8px;
+  border: 0;
+  background: color-mix(in srgb, var(--skillhub-tag-color) 14%, var(--background-secondary));
+  color: var(--text-muted);
+  box-shadow: none;
 }
 
 .skillhub-edit-tag-button {

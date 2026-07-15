@@ -173,6 +173,8 @@ export class SkillEditModal extends Modal {
     app: Modal["app"],
     private readonly skill: SkillRecord,
     private readonly collections: SkillCollection[],
+    private readonly allTags: string[],
+    private readonly sharedTagColors: Record<string, string>,
     private readonly onSubmit: SubmitHandler<SkillEditValues>
   ) {
     super(app);
@@ -185,7 +187,8 @@ export class SkillEditModal extends Modal {
     let color = this.skill.color ?? "#7f8c8d";
     let tagDraft = "";
     const tags = [...this.skill.tags];
-    const tagColors = { ...(this.skill.tagColors ?? {}) };
+    const knownTags = new Set([...this.allTags, ...tags]);
+    const tagColors = { ...this.sharedTagColors };
     const collectionIds = new Set(this.skill.collectionIds);
     let emojiInput: { setValue(value: string): unknown } | undefined;
     let tagInput: { setValue(value: string): unknown; inputEl: HTMLInputElement } | undefined;
@@ -200,7 +203,7 @@ export class SkillEditModal extends Modal {
     });
     const emojiCandidatesEl = this.contentEl.createDiv({ cls: "skillhub-emoji-candidates" });
     new Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => { color = value; }));
-    new Setting(this.contentEl).setName("Tags").addText((text) => {
+    new Setting(this.contentEl).setName("Tags").setDesc("Right click to change tag color").addText((text) => {
       tagInput = text;
       text.setPlaceholder("Add tag and press Enter").onChange((value) => { tagDraft = value; });
       text.inputEl.addEventListener("keydown", (event) => {
@@ -210,7 +213,12 @@ export class SkillEditModal extends Modal {
         }
       });
     });
-    const tagsEl = this.contentEl.createDiv({ cls: "skillhub-edit-tags" });
+    const currentTagsSection = this.contentEl.createDiv({ cls: "skillhub-current-tags" });
+    currentTagsSection.createEl("h3", { text: "Current skill tags" });
+    const currentTagsEl = currentTagsSection.createDiv({ cls: "skillhub-edit-tags" });
+    const existingTagsSection = this.contentEl.createDiv({ cls: "skillhub-existing-tags" });
+    existingTagsSection.createEl("h3", { text: "Existing tags" });
+    const existingTagsEl = existingTagsSection.createDiv({ cls: "skillhub-edit-tags" });
 
     const renderEmojiCandidates = (): void => {
       emojiCandidatesEl.empty();
@@ -228,6 +236,7 @@ export class SkillEditModal extends Modal {
     const addTag = (rawTag: string): void => {
       const tag = rawTag.trim();
       if (!tag || tags.includes(tag)) return;
+      knownTags.add(tag);
       tags.push(tag);
       tagDraft = "";
       tagInput?.setValue("");
@@ -235,9 +244,9 @@ export class SkillEditModal extends Modal {
     };
 
     const renderTags = (): void => {
-      tagsEl.empty();
+      currentTagsEl.empty();
       for (const tag of tags) {
-        const tagEl = tagsEl.createDiv({ cls: "skillhub-edit-tag" });
+        const tagEl = currentTagsEl.createDiv({ cls: "skillhub-edit-tag" });
         const tagColor = tagColors[tag] ?? DEFAULT_TAG_COLOR;
         tagEl.style.setProperty("--skillhub-tag-color", tagColor);
 
@@ -253,13 +262,20 @@ export class SkillEditModal extends Modal {
         tagButton.createEl("span", { text: "×", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
         tagButton.addEventListener("click", () => {
           tags.splice(tags.indexOf(tag), 1);
-          delete tagColors[tag];
           renderTags();
         });
         tagButton.addEventListener("contextmenu", (event) => {
           event.preventDefault();
           colorInput.click();
         });
+      }
+
+      existingTagsEl.empty();
+      for (const tag of [...knownTags].filter((candidate) => !tags.includes(candidate)).sort((left, right) => left.localeCompare(right))) {
+        const button = existingTagsEl.createEl("button", { text: tag, cls: "skillhub-existing-tag" });
+        const tagColor = tagColors[tag] ?? DEFAULT_TAG_COLOR;
+        button.style.setProperty("--skillhub-tag-color", tagColor);
+        button.addEventListener("click", () => addTag(tag));
       }
     };
 

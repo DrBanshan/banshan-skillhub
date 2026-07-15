@@ -20,9 +20,18 @@ describe("skill hub UI source", () => {
     const source = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 
     expect(source).toContain("event.key === \"Enter\"");
-    expect(source).toContain("skillhub-edit-tags");
+    expect(source).toContain("skillhub-current-tags");
+    expect(source).toContain("skillhub-existing-tags");
+    expect(source).toContain("Right click to change tag color");
     expect(source).toContain("skillhub-tag-delete-icon");
     expect(source).toContain("contextmenu");
     expect(source).toContain("tagColors");
+  });
+
+  it("renders tag colors from shared plugin data", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("this.plugin.registry.data.tagColors");
+    expect(source).not.toContain("skill.tagColors?.[tag]");
   });
 });

@@ -6,8 +6,19 @@ export function createEmptySkillHubData(): SkillHubData {
     settings: { ...DEFAULT_SETTINGS },
     skills: {},
     collections: {},
+    tagColors: {},
     events: []
   };
+}
+
+export function collectTagColors(data: Pick<SkillHubData, "skills"> & { tagColors?: Record<string, string> }): Record<string, string> {
+  const tagColors = { ...(data.tagColors ?? {}) };
+  for (const skill of Object.values(data.skills)) {
+    for (const [tag, color] of Object.entries(skill.tagColors ?? {})) {
+      if (!tagColors[tag]) tagColors[tag] = color;
+    }
+  }
+  return tagColors;
 }
 
 export class SkillRegistry {

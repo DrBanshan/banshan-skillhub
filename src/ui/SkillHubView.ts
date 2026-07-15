@@ -153,12 +153,13 @@ export class SkillHubView extends ItemView {
   }
 
   private openEditModal(skill: SkillRecord): void {
-    new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), async (values) => {
+    new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), this.getAllTags(), this.plugin.registry.data.tagColors, async (values) => {
       skill.nickname = values.nickname;
       skill.emoji = values.emoji;
       skill.color = values.color;
       skill.tags = values.tags;
-      skill.tagColors = values.tagColors;
+      delete skill.tagColors;
+      this.plugin.registry.data.tagColors = values.tagColors;
       this.plugin.registry.updateSkillCollections(skill.id, values.collectionIds);
       skill.updatedAt = new Date().toISOString();
       await this.plugin.saveSkillHubData();
@@ -168,11 +169,19 @@ export class SkillHubView extends ItemView {
 
   private renderTagChip(chips: HTMLElement, skill: SkillRecord, tag: string): void {
     const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
-    const tagColor = skill.tagColors?.[tag];
+    const tagColor = this.plugin.registry.data.tagColors[tag];
     if (tagColor) {
       chip.addClass("has-color");
       chip.style.setProperty("--skillhub-tag-color", tagColor);
     }
+  }
+
+  private getAllTags(): string[] {
+    const tags = new Set(Object.keys(this.plugin.registry.data.tagColors));
+    for (const skill of Object.values(this.plugin.registry.data.skills)) {
+      for (const tag of skill.tags) tags.add(tag);
+    }
+    return [...tags].sort((left, right) => left.localeCompare(right));
   }
 
   private openDeleteModal(skill: SkillRecord): void {

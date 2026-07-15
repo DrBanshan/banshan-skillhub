@@ -751,8 +751,19 @@ function createEmptySkillHubData() {
     settings: { ...DEFAULT_SETTINGS },
     skills: {},
     collections: {},
+    tagColors: {},
     events: []
   };
+}
+function collectTagColors(data) {
+  var _a, _b;
+  const tagColors = { ...(_a = data.tagColors) != null ? _a : {} };
+  for (const skill of Object.values(data.skills)) {
+    for (const [tag, color] of Object.entries((_b = skill.tagColors) != null ? _b : {})) {
+      if (!tagColors[tag]) tagColors[tag] = color;
+    }
+  }
+  return tagColors;
 }
 var SkillRegistry = class {
   constructor(data) {
@@ -972,21 +983,24 @@ var SkillSelectionModal = class extends import_obsidian2.Modal {
   }
 };
 var SkillEditModal = class extends import_obsidian2.Modal {
-  constructor(app, skill, collections, onSubmit) {
+  constructor(app, skill, collections, allTags, sharedTagColors, onSubmit) {
     super(app);
     this.skill = skill;
     this.collections = collections;
+    this.allTags = allTags;
+    this.sharedTagColors = sharedTagColors;
     this.onSubmit = onSubmit;
   }
   onOpen() {
-    var _a, _b, _c;
+    var _a, _b;
     this.setTitle(`Edit ${this.skill.nickname}`);
     let nickname = this.skill.nickname;
     let emoji = (_a = this.skill.emoji) != null ? _a : "";
     let color = (_b = this.skill.color) != null ? _b : "#7f8c8d";
     let tagDraft = "";
     const tags = [...this.skill.tags];
-    const tagColors = { ...(_c = this.skill.tagColors) != null ? _c : {} };
+    const knownTags = /* @__PURE__ */ new Set([...this.allTags, ...tags]);
+    const tagColors = { ...this.sharedTagColors };
     const collectionIds = new Set(this.skill.collectionIds);
     let emojiInput;
     let tagInput;
@@ -1004,7 +1018,7 @@ var SkillEditModal = class extends import_obsidian2.Modal {
     new import_obsidian2.Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => {
       color = value;
     }));
-    new import_obsidian2.Setting(this.contentEl).setName("Tags").addText((text) => {
+    new import_obsidian2.Setting(this.contentEl).setName("Tags").setDesc("Right click to change tag color").addText((text) => {
       tagInput = text;
       text.setPlaceholder("Add tag and press Enter").onChange((value) => {
         tagDraft = value;
@@ -1016,7 +1030,12 @@ var SkillEditModal = class extends import_obsidian2.Modal {
         }
       });
     });
-    const tagsEl = this.contentEl.createDiv({ cls: "skillhub-edit-tags" });
+    const currentTagsSection = this.contentEl.createDiv({ cls: "skillhub-current-tags" });
+    currentTagsSection.createEl("h3", { text: "Current skill tags" });
+    const currentTagsEl = currentTagsSection.createDiv({ cls: "skillhub-edit-tags" });
+    const existingTagsSection = this.contentEl.createDiv({ cls: "skillhub-existing-tags" });
+    existingTagsSection.createEl("h3", { text: "Existing tags" });
+    const existingTagsEl = existingTagsSection.createDiv({ cls: "skillhub-edit-tags" });
     const renderEmojiCandidates = () => {
       emojiCandidatesEl.empty();
       for (const candidate of SKILL_EMOJI_CANDIDATES) {
@@ -1032,16 +1051,17 @@ var SkillEditModal = class extends import_obsidian2.Modal {
     const addTag = (rawTag) => {
       const tag = rawTag.trim();
       if (!tag || tags.includes(tag)) return;
+      knownTags.add(tag);
       tags.push(tag);
       tagDraft = "";
       tagInput == null ? void 0 : tagInput.setValue("");
       renderTags();
     };
     const renderTags = () => {
-      var _a2;
-      tagsEl.empty();
+      var _a2, _b2;
+      currentTagsEl.empty();
       for (const tag of tags) {
-        const tagEl = tagsEl.createDiv({ cls: "skillhub-edit-tag" });
+        const tagEl = currentTagsEl.createDiv({ cls: "skillhub-edit-tag" });
         const tagColor = (_a2 = tagColors[tag]) != null ? _a2 : DEFAULT_TAG_COLOR;
         tagEl.style.setProperty("--skillhub-tag-color", tagColor);
         const colorInput = tagEl.createEl("input", { type: "color", cls: "skillhub-tag-color" });
@@ -1055,13 +1075,19 @@ var SkillEditModal = class extends import_obsidian2.Modal {
         tagButton.createEl("span", { text: "\xD7", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
         tagButton.addEventListener("click", () => {
           tags.splice(tags.indexOf(tag), 1);
-          delete tagColors[tag];
           renderTags();
         });
         tagButton.addEventListener("contextmenu", (event) => {
           event.preventDefault();
           colorInput.click();
         });
+      }
+      existingTagsEl.empty();
+      for (const tag of [...knownTags].filter((candidate) => !tags.includes(candidate)).sort((left, right) => left.localeCompare(right))) {
+        const button = existingTagsEl.createEl("button", { text: tag, cls: "skillhub-existing-tag" });
+        const tagColor = (_b2 = tagColors[tag]) != null ? _b2 : DEFAULT_TAG_COLOR;
+        button.style.setProperty("--skillhub-tag-color", tagColor);
+        button.addEventListener("click", () => addTag(tag));
       }
     };
     const collectionsEl = this.contentEl.createDiv({ cls: "skillhub-collections" });
@@ -1403,12 +1429,13 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     new SkillDetailModal(this.app, skill, Object.values(this.plugin.registry.data.collections)).open();
   }
   openEditModal(skill) {
-    new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), async (values) => {
+    new SkillEditModal(this.app, skill, Object.values(this.plugin.registry.data.collections), this.getAllTags(), this.plugin.registry.data.tagColors, async (values) => {
       skill.nickname = values.nickname;
       skill.emoji = values.emoji;
       skill.color = values.color;
       skill.tags = values.tags;
-      skill.tagColors = values.tagColors;
+      delete skill.tagColors;
+      this.plugin.registry.data.tagColors = values.tagColors;
       this.plugin.registry.updateSkillCollections(skill.id, values.collectionIds);
       skill.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
       await this.plugin.saveSkillHubData();
@@ -1416,13 +1443,19 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     }).open();
   }
   renderTagChip(chips, skill, tag) {
-    var _a;
     const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
-    const tagColor = (_a = skill.tagColors) == null ? void 0 : _a[tag];
+    const tagColor = this.plugin.registry.data.tagColors[tag];
     if (tagColor) {
       chip.addClass("has-color");
       chip.style.setProperty("--skillhub-tag-color", tagColor);
     }
+  }
+  getAllTags() {
+    const tags = new Set(Object.keys(this.plugin.registry.data.tagColors));
+    for (const skill of Object.values(this.plugin.registry.data.skills)) {
+      for (const tag of skill.tags) tags.add(tag);
+    }
+    return [...tags].sort((left, right) => left.localeCompare(right));
   }
   openDeleteModal(skill) {
     new DeleteConfirmationModal(this.app, skill, async () => {
@@ -1534,13 +1567,14 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     this.registry = new SkillRegistry(this.data);
   }
   async onload() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const saved = await this.loadData();
     this.data = {
       settings: { ...DEFAULT_SETTINGS, ...saved == null ? void 0 : saved.settings },
       skills: (_a = saved == null ? void 0 : saved.skills) != null ? _a : {},
       collections: (_b = saved == null ? void 0 : saved.collections) != null ? _b : {},
-      events: (_c = saved == null ? void 0 : saved.events) != null ? _c : []
+      tagColors: collectTagColors({ skills: (_c = saved == null ? void 0 : saved.skills) != null ? _c : {}, tagColors: saved == null ? void 0 : saved.tagColors }),
+      events: (_d = saved == null ? void 0 : saved.events) != null ? _d : []
     };
     this.registry = new SkillRegistry(this.data);
     this.addRibbonIcon("blocks", "Open Skill Hub", () => {

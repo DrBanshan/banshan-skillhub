@@ -8,7 +8,7 @@ import { pickNativeFolder } from "./folderPicker";
 import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
 import { SkillImportService } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
-import { createEmptySkillHubData, SkillRegistry } from "./registry";
+import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
 import { SkillHubSettingTab } from "./settings";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import { discoverSkills, formatMissingSkillsFolderMessage, type DiscoveredSkill } from "./skillDiscovery";
@@ -27,6 +27,7 @@ export default class SkillHubPlugin extends Plugin {
       settings: { ...DEFAULT_SETTINGS, ...saved?.settings },
       skills: saved?.skills ?? {},
       collections: saved?.collections ?? {},
+      tagColors: collectTagColors({ skills: saved?.skills ?? {}, tagColors: saved?.tagColors }),
       events: saved?.events ?? []
     };
     this.registry = new SkillRegistry(this.data);

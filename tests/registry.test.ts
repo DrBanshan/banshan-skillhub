@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { createSkillEvent } from "../src/events";
 
-import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
+import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "../src/registry";
 
 describe("SkillRegistry", () => {
+  it("initializes shared tag colors", () => {
+    expect(createEmptySkillHubData().tagColors).toEqual({});
+  });
+
+  it("collects legacy per-skill tag colors into shared tag colors", () => {
+    const data = createEmptySkillHubData();
+    data.skills["skill-1"] = {
+      id: "skill-1",
+      folderName: "writer",
+      vaultPath: "Skill/writer",
+      originalName: "Writer",
+      nickname: "Writer",
+      description: "",
+      tags: ["writing"],
+      tagColors: { writing: "#ff0000" },
+      collectionIds: [],
+      source: { type: "local", path: "/tmp" },
+      importMethod: "local",
+      warnings: [],
+      importedAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+      installCount: 0
+    };
+
+    expect(collectTagColors(data)).toEqual({ writing: "#ff0000" });
+  });
+
   it("stores skill metadata without modifying source fields", () => {
     const registry = new SkillRegistry(createEmptySkillHubData());
     registry.upsertSkill({
