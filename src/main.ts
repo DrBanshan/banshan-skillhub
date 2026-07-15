@@ -11,7 +11,7 @@ import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./loc
 import { createEmptySkillHubData, SkillRegistry } from "./registry";
 import { SkillHubSettingTab } from "./settings";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
-import { discoverSkills, type DiscoveredSkill } from "./skillDiscovery";
+import { discoverSkills, formatMissingSkillsFolderMessage, type DiscoveredSkill } from "./skillDiscovery";
 import type { SkillHubData, SkillRecord, SkillSource } from "./types";
 import { InstallResultModal, ManualNpxFallbackModal, SkillSelectionModal } from "./ui/modals";
 import { SkillHubView, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
@@ -245,7 +245,7 @@ export default class SkillHubPlugin extends Plugin {
   ): Promise<void> {
     try {
       const discovered = await discoverSkills(path);
-      if (discovered.missingSkillsFolder) throw new Error("No skills folder was found in the selected directory.");
+      if (discovered.missingSkillsFolder) throw new Error(formatMissingSkillsFolderMessage());
       this.showDiscoveryWarnings(discovered.warnings);
       await this.openImportSelection(discovered.skills, source, importMethod);
     } catch (error) {

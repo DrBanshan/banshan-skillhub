@@ -42,6 +42,10 @@ export function resolveSkillsRootCandidates(scanRoot: string): string[] {
   return [join(scanRoot, "skills"), join(scanRoot, ".agents", "skills")];
 }
 
+export function formatMissingSkillsFolderMessage(): string {
+  return "No skills or .agents/skills folder was found in the selected directory.";
+}
+
 export function parseSkillMarkdown(markdown: string, folderName: string): ParsedSkillMetadata {
   const lines = markdown.split(/\r?\n/);
   const warnings: string[] = [];

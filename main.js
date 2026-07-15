@@ -257,6 +257,9 @@ function resolveSkillsRootCandidates(scanRoot) {
   if ((0, import_path4.basename)(scanRoot) === "skills") return [scanRoot];
   return [(0, import_path4.join)(scanRoot, "skills"), (0, import_path4.join)(scanRoot, ".agents", "skills")];
 }
+function formatMissingSkillsFolderMessage() {
+  return "No skills or .agents/skills folder was found in the selected directory.";
+}
 function parseSkillMarkdown(markdown, folderName) {
   var _a;
   const lines = markdown.split(/\r?\n/);
@@ -1617,7 +1620,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
   async importFromDirectory(path, source, importMethod) {
     try {
       const discovered = await discoverSkills(path);
-      if (discovered.missingSkillsFolder) throw new Error("No skills folder was found in the selected directory.");
+      if (discovered.missingSkillsFolder) throw new Error(formatMissingSkillsFolderMessage());
       this.showDiscoveryWarnings(discovered.warnings);
       await this.openImportSelection(discovered.skills, source, importMethod);
     } catch (error) {

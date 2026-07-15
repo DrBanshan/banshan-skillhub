@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
-import { discoverSkills, parseSkillMarkdown } from "../src/skillDiscovery";
+import { discoverSkills, formatMissingSkillsFolderMessage, parseSkillMarkdown } from "../src/skillDiscovery";
 
 const fixturesRoot = new URL("./fixtures/", import.meta.url).pathname;
 
@@ -90,6 +90,10 @@ describe("discoverSkills", () => {
     const result = await discoverSkills(`${fixturesRoot}not-skills`);
 
     expect(result).toMatchObject({ skills: [], missingSkillsFolder: true });
+  });
+
+  it("describes both supported local scan roots when neither exists", () => {
+    expect(formatMissingSkillsFolderMessage()).toBe("No skills or .agents/skills folder was found in the selected directory.");
   });
 });
 
