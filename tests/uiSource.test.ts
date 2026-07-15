@@ -48,4 +48,15 @@ describe("skill hub UI source", () => {
     expect(source).toContain("tagColors: Object.fromEntries([...knownTags].filter((tag) => tagColors[tag])");
     expect(source).not.toContain("tagColors: Object.fromEntries(tags.filter((tag) => tagColors[tag])");
   });
+
+  it("renders skill card actions as icon buttons with tooltips", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("addCardActionButton");
+    expect(source).toContain("skillhub-action-tooltip");
+    expect(source).toContain("skillhub-delete-button");
+    expect(source).toContain("skillhub-edit-button");
+    expect(source).toContain("skillhub-details-button");
+    expect(source).toContain("createSvgIcon");
+  });
 });

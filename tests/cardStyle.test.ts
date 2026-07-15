@@ -44,4 +44,17 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-edit-tag:focus-within button.skillhub-edit-tag-button");
     expect(css).toContain("background: var(--background-secondary) !important;");
   });
+
+  it("styles skill card actions as tooltip icon buttons", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-card-action-button");
+    expect(css).toContain("width: 40px;");
+    expect(css).toContain("height: 40px;");
+    expect(css).toContain(".skillhub-delete-button:hover");
+    expect(css).toContain("background-color: rgb(237, 56, 56) !important;");
+    expect(css).toContain(".skillhub-card-action-button:hover .skillhub-action-tooltip");
+    expect(css).toContain(".skillhub-card-action-button:active");
+    expect(css).toContain("transform: scale(0.98);");
+  });
 });

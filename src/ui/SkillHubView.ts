@@ -15,6 +15,7 @@ import {
 } from "./modals";
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
+type CardActionIcon = "details" | "edit" | "delete";
 
 export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
@@ -143,9 +144,9 @@ export class SkillHubView extends ItemView {
     }
 
     const actions = card.createDiv({ cls: "skillhub-card-actions" });
-    this.addButton(actions, "Details", () => this.openDetailModal(skill));
-    this.addButton(actions, "Edit", () => this.openEditModal(skill));
-    this.addButton(actions, "Delete", () => this.openDeleteModal(skill));
+    this.addCardActionButton(actions, "Details", "details", () => this.openDetailModal(skill));
+    this.addCardActionButton(actions, "Edit", "edit", () => this.openEditModal(skill));
+    this.addCardActionButton(actions, "Delete", "delete", () => this.openDeleteModal(skill));
   }
 
   private openDetailModal(skill: SkillRecord): void {
@@ -292,5 +293,50 @@ export class SkillHubView extends ItemView {
     const button = container.createEl("button", { text: label });
     button.disabled = disabled;
     button.addEventListener("click", onClick);
+  }
+
+  private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void): void {
+    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : "skillhub-details-button";
+    const button = container.createEl("button", {
+      cls: `skillhub-card-action-button ${actionClass}`,
+      attr: { "aria-label": label }
+    });
+    button.createSpan({ cls: "skillhub-action-tooltip", text: label });
+    this.createSvgIcon(button, icon);
+    button.addEventListener("click", onClick);
+  }
+
+  private createSvgIcon(container: HTMLElement, icon: CardActionIcon): void {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.setAttribute("class", icon === "delete" ? "skillhub-action-svg bin" : "skillhub-action-svg");
+    container.appendChild(svg);
+
+    if (icon === "details") {
+      this.appendSvgElement(svg, "circle", { cx: "12", cy: "12", r: "8.5" });
+      this.appendSvgElement(svg, "path", { d: "M12 10.5v5.5" });
+      this.appendSvgElement(svg, "path", { d: "M12 7.5h.01" });
+      return;
+    }
+
+    if (icon === "edit") {
+      this.appendSvgElement(svg, "path", { d: "M5 19h4.2L18.4 9.8a2.1 2.1 0 0 0 0-3L17.2 5.6a2.1 2.1 0 0 0-3 0L5 14.8V19Z" });
+      this.appendSvgElement(svg, "path", { d: "M13.5 6.5l4 4" });
+      return;
+    }
+
+    this.appendSvgElement(svg, "path", { d: "M8 8h8l-.6 10.2A2 2 0 0 1 13.4 20h-2.8a2 2 0 0 1-2-1.8L8 8Z" });
+    this.appendSvgElement(svg, "path", { d: "M6 8h12" });
+    this.appendSvgElement(svg, "path", { d: "M9.5 8V6.5A1.5 1.5 0 0 1 11 5h2a1.5 1.5 0 0 1 1.5 1.5V8" });
+    this.appendSvgElement(svg, "path", { d: "M10.5 11v5" });
+    this.appendSvgElement(svg, "path", { d: "M13.5 11v5" });
+  }
+
+  private appendSvgElement(svg: SVGElement, tag: "circle" | "path", attrs: Record<string, string>): void {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+    svg.appendChild(element);
   }
 }

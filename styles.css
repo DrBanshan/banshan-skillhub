@@ -108,6 +108,7 @@
 
 .skillhub-card-actions {
   margin-top: auto;
+  overflow: visible;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -117,6 +118,104 @@
 .skillhub-card:focus-within .skillhub-card-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+.skillhub-card-action-button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none !important;
+  border-radius: 8px;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.skillhub-card-action-button svg {
+  width: 44%;
+}
+
+.skillhub-card-action-button svg,
+.skillhub-card-action-button path,
+.skillhub-card-action-button circle {
+  fill: none;
+  stroke: var(--text-normal);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: all 0.2s;
+}
+
+.skillhub-card-action-button:hover {
+  overflow: visible;
+}
+
+.skillhub-details-button:hover {
+  background-color: rgb(45, 140, 240) !important;
+}
+
+.skillhub-edit-button:hover {
+  background-color: rgb(116, 82, 238) !important;
+}
+
+.skillhub-delete-button:hover {
+  background-color: rgb(237, 56, 56) !important;
+}
+
+.skillhub-card-action-button:hover svg,
+.skillhub-card-action-button:hover path,
+.skillhub-card-action-button:hover circle {
+  stroke: #fff;
+}
+
+.skillhub-delete-button:hover .bin path {
+  fill: #fff;
+}
+
+.skillhub-card-action-button:active {
+  transform: scale(0.98);
+}
+
+.skillhub-action-tooltip {
+  --tooltip-color: rgb(41, 41, 41);
+  position: absolute;
+  top: -40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 5px;
+  background-color: var(--tooltip-color);
+  box-shadow: 0 10px 10px rgba(0, 0, 0, 0.105);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.5s;
+  white-space: nowrap;
+}
+
+.skillhub-action-tooltip::before {
+  position: absolute;
+  bottom: -10%;
+  width: 10px;
+  height: 10px;
+  background-color: var(--tooltip-color);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.skillhub-card-action-button:hover .skillhub-action-tooltip {
+  opacity: 1;
 }
 
 .skillhub-empty {
