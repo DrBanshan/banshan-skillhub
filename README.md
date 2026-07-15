@@ -6,6 +6,10 @@ Banshan Skill Hub is an Obsidian plugin for discovering, importing, organizing, 
 
 This plugin is desktop-only. It uses local filesystem access to import skill folders and create agent workspace installs, so it is not supported on Obsidian mobile.
 
+### Development build
+
+Run `npm run build` to compile the plugin into `.obsidian/plugins/banshan-skillhub/`. The build writes `main.js`, `manifest.json`, and `styles.css` there, and also syncs the root `main.js` bundle for release tracking.
+
 ### Import skills
 
 Use the Skill Hub view to choose an import source, then select the discovered skills to add to your vault.

@@ -2,7 +2,7 @@
   "id": "banshan-skillhub",
   "name": "Banshan Skill Hub",
   "version": "0.1.0",
-  "minAppVersion": "1.5.0",
+  "minAppVersion": "1.12.7",
   "description": "Import, organize, and install AI agent skills from an Obsidian vault.",
   "author": "DrBanshan",
   "isDesktopOnly": true
