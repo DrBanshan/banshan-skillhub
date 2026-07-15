@@ -175,30 +175,30 @@
   overflow: hidden;
 }
 
-.skillhub-existing-tag {
+button.skillhub-existing-tag {
   padding: 2px 8px;
-  border: 0;
-  background-color: var(--skillhub-tag-color);
+  border-color: transparent !important;
+  background: var(--skillhub-tag-color) !important;
   color: var(--text-normal);
-  box-shadow: none;
+  box-shadow: none !important;
 }
 
-.skillhub-edit-tag-button {
+.skillhub-edit-tag button.skillhub-edit-tag-button {
   position: relative;
   min-height: 24px;
   padding: 2px 9px;
   border-radius: 6px;
-  border: 0;
-  background-color: var(--skillhub-tag-color);
+  border-color: transparent !important;
+  background: var(--skillhub-tag-color) !important;
   color: var(--text-normal);
-  box-shadow: none;
+  box-shadow: none !important;
   cursor: pointer;
   overflow: hidden;
 }
 
-.skillhub-edit-tag:hover .skillhub-edit-tag-button,
-.skillhub-edit-tag:focus-within .skillhub-edit-tag-button {
-  background-color: var(--background-secondary);
+.skillhub-edit-tag:hover button.skillhub-edit-tag-button,
+.skillhub-edit-tag:focus-within button.skillhub-edit-tag-button {
+  background: var(--background-secondary) !important;
 }
 
 .skillhub-tag-text,

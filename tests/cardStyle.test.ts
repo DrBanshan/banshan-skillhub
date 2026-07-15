@@ -35,12 +35,13 @@ describe("skill card color styling", () => {
   it("shows edit tag colors except while hovering current skill tags", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".skillhub-existing-tag");
-    expect(css).toContain("background-color: var(--skillhub-tag-color);");
-    expect(css).toContain(".skillhub-edit-tag-button");
-    expect(css).toContain(".skillhub-edit-tag:hover .skillhub-edit-tag-button");
-    expect(css).toContain(".skillhub-edit-tag:focus-within .skillhub-edit-tag-button");
-    expect(css).toContain(".skillhub-edit-tag:hover");
-    expect(css).toContain("background-color: var(--background-secondary);");
+    expect(css).toContain("button.skillhub-existing-tag");
+    expect(css).toContain(".skillhub-edit-tag button.skillhub-edit-tag-button");
+    expect(css).toContain("background: var(--skillhub-tag-color) !important;");
+    expect(css).toContain("border-color: transparent !important;");
+    expect(css).toContain("box-shadow: none !important;");
+    expect(css).toContain(".skillhub-edit-tag:hover button.skillhub-edit-tag-button");
+    expect(css).toContain(".skillhub-edit-tag:focus-within button.skillhub-edit-tag-button");
+    expect(css).toContain("background: var(--background-secondary) !important;");
   });
 });
