@@ -16,6 +16,7 @@ import {
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
 type CardActionIcon = "details" | "edit" | "delete";
+type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "done" | "download";
 
 export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
@@ -65,15 +66,15 @@ export class SkillHubView extends ItemView {
     this.contentEl.addClass("skillhub-root");
 
     const toolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar" });
-    this.addButton(toolbar, "GitHub import", () => this.openGitHubImport());
-    this.addButton(toolbar, "Local scan", () => this.openLocalScan());
-    this.addButton(toolbar, "npx import", () => this.openNpxImport());
-    this.addButton(toolbar, "Collections", () => this.openCollectionManager());
-    this.addButton(toolbar, this.selectMode ? "Done" : "Select", () => {
+    this.addToolbarButton(toolbar, "GitHub import", "github", () => this.openGitHubImport());
+    this.addToolbarButton(toolbar, "Local scan", "folder", () => this.openLocalScan());
+    this.addToolbarButton(toolbar, "npx import", "node", () => this.openNpxImport());
+    this.addToolbarButton(toolbar, "Collections", "collections", () => this.openCollectionManager());
+    this.addToolbarButton(toolbar, this.selectMode ? "Done" : "Select", this.selectMode ? "done" : "select", () => {
       this.selectMode = !this.selectMode;
       this.render();
     });
-    this.addButton(toolbar, "Install", () => this.installSelectedSkills(), this.selectedSkillIds.size === 0);
+    this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills(), this.selectedSkillIds.size === 0);
 
     if (this.selectMode) {
       const bulkToolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar skillhub-bulk-toolbar" });
@@ -295,6 +296,17 @@ export class SkillHubView extends ItemView {
     button.addEventListener("click", onClick);
   }
 
+  private addToolbarButton(container: HTMLElement, label: string, icon: ToolbarIcon, onClick: () => void, disabled = false): void {
+    const button = container.createEl("button", {
+      cls: "skillhub-toolbar-button",
+      attr: { "aria-label": label }
+    });
+    button.disabled = disabled;
+    button.createSpan({ cls: "skillhub-toolbar-label", text: label });
+    this.createToolbarIcon(button, icon);
+    button.addEventListener("click", onClick);
+  }
+
   private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void): void {
     const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : "skillhub-details-button";
     const button = container.createEl("button", {
@@ -338,5 +350,55 @@ export class SkillHubView extends ItemView {
     const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
     svg.appendChild(element);
+  }
+
+  private createToolbarIcon(container: HTMLElement, icon: ToolbarIcon): void {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.setAttribute("class", "skillhub-toolbar-icon");
+    container.appendChild(svg);
+
+    if (icon === "github") {
+      this.appendSvgElement(svg, "path", { d: "M12 2.5a9.5 9.5 0 0 0-3 18c.48.09.65-.2.65-.46v-1.7c-2.64.58-3.2-1.12-3.2-1.12-.43-1.1-1.05-1.4-1.05-1.4-.86-.58.06-.57.06-.57.95.07 1.45.98 1.45.98.84 1.44 2.2 1.02 2.74.78.08-.61.33-1.02.6-1.26-2.1-.24-4.32-1.05-4.32-4.68 0-1.03.37-1.88.98-2.54-.1-.24-.42-1.2.09-2.5 0 0 .8-.26 2.62.97A9.1 9.1 0 0 1 12 6.68c.81 0 1.62.11 2.38.32 1.82-1.23 2.62-.97 2.62-.97.51 1.3.19 2.26.09 2.5.61.66.98 1.51.98 2.54 0 3.64-2.22 4.43-4.33 4.67.34.3.64.87.64 1.76v2.54c0 .26.17.56.66.46a9.5 9.5 0 0 0-3.04-18Z" });
+      return;
+    }
+
+    if (icon === "folder") {
+      this.appendSvgElement(svg, "path", { d: "M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2.5h7.5A2.5 2.5 0 0 1 21 9v7.5A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z" });
+      this.appendSvgElement(svg, "path", { d: "m15.5 14.5 2 2" });
+      this.appendSvgElement(svg, "circle", { cx: "13", cy: "12", r: "3" });
+      return;
+    }
+
+    if (icon === "node") {
+      this.appendSvgElement(svg, "path", { d: "M12 2.7 20 7.2v9.6l-8 4.5-8-4.5V7.2l8-4.5Z" });
+      this.appendSvgElement(svg, "path", { d: "M9.2 15.3c.5.7 1.4 1 2.5 1 1.5 0 2.4-.7 2.4-1.8 0-.9-.5-1.4-1.9-1.7l-1-.2c-.7-.2-1-.4-1-.8 0-.5.5-.8 1.2-.8.8 0 1.3.3 1.6.8" });
+      return;
+    }
+
+    if (icon === "collections") {
+      this.appendSvgElement(svg, "path", { d: "M7 4h11v11H7z" });
+      this.appendSvgElement(svg, "path", { d: "M4 7h11v11H4z" });
+      this.appendSvgElement(svg, "path", { d: "M10 10h5" });
+      return;
+    }
+
+    if (icon === "select") {
+      this.appendSvgElement(svg, "path", { d: "M5 7h14" });
+      this.appendSvgElement(svg, "path", { d: "M5 12h14" });
+      this.appendSvgElement(svg, "path", { d: "M5 17h14" });
+      return;
+    }
+
+    if (icon === "done") {
+      this.appendSvgElement(svg, "path", { d: "m5 12 4 4L19 6" });
+      return;
+    }
+
+    this.appendSvgElement(svg, "path", { d: "M12 4v10" });
+    this.appendSvgElement(svg, "path", { d: "m7 10 5 5 5-5" });
+    this.appendSvgElement(svg, "path", { d: "M5 20h14" });
   }
 }

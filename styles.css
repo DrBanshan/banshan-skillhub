@@ -38,6 +38,76 @@
   font-size: var(--font-ui-small);
 }
 
+.skillhub-toolbar-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100px;
+  height: 40px;
+  padding: 0 30px 0 14px;
+  border: none !important;
+  border-radius: 10px;
+  background-color: rgb(168, 38, 255) !important;
+  box-shadow: 5px 5px 0 rgb(140, 32, 212);
+  color: white !important;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.05;
+  transition-duration: 0.3s;
+}
+
+.skillhub-toolbar-label {
+  max-width: 54px;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.skillhub-toolbar-icon {
+  position: absolute;
+  right: 0;
+  width: 13px;
+  margin-right: 20px;
+  padding: 0;
+  border: none;
+  fill: none;
+  stroke: white;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition-duration: 0.3s;
+}
+
+.skillhub-toolbar-icon path:first-child {
+  fill: white;
+  stroke: white;
+}
+
+.skillhub-toolbar-button:hover {
+  color: transparent !important;
+}
+
+.skillhub-toolbar-button:hover .skillhub-toolbar-icon {
+  right: 43%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  transition-duration: 0.3s;
+}
+
+.skillhub-toolbar-button:active {
+  box-shadow: 2px 2px 0 rgb(140, 32, 212);
+  transform: translate(3px, 3px);
+  transition-duration: 0.3s;
+}
+
+.skillhub-toolbar-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+  opacity: 0.55;
+}
+
 .skillhub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));

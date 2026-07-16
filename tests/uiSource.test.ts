@@ -59,4 +59,15 @@ describe("skill hub UI source", () => {
     expect(source).toContain("skillhub-details-button");
     expect(source).toContain("createSvgIcon");
   });
+
+  it("renders the main toolbar as branded icon buttons", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("addToolbarButton");
+    expect(source).toContain("skillhub-toolbar-button");
+    expect(source).toContain("skillhub-toolbar-icon");
+    expect(source).toContain("\"github\"");
+    expect(source).toContain("\"node\"");
+    expect(source).toContain("\"download\"");
+  });
 });

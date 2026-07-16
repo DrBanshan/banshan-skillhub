@@ -57,4 +57,19 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-card-action-button:active");
     expect(css).toContain("transform: scale(0.98);");
   });
+
+  it("styles main toolbar actions as sliding icon buttons", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-toolbar-button");
+    expect(css).toContain("width: 100px;");
+    expect(css).toContain("height: 40px;");
+    expect(css).toContain("box-shadow: 5px 5px 0 rgb(140, 32, 212);");
+    expect(css).toContain(".skillhub-toolbar-button:hover");
+    expect(css).toContain("color: transparent !important;");
+    expect(css).toContain(".skillhub-toolbar-button:hover .skillhub-toolbar-icon");
+    expect(css).toContain("right: 43%;");
+    expect(css).toContain(".skillhub-toolbar-button:active");
+    expect(css).toContain("transform: translate(3px, 3px);");
+  });
 });
