@@ -1223,17 +1223,19 @@ var CollectionDetailModal = class extends import_obsidian2.Modal {
   }
 };
 var CollectionEditModal = class extends import_obsidian2.Modal {
-  constructor(app, collection, onSubmit) {
+  constructor(app, collection, onSubmit, collectionSkills) {
     super(app);
     this.collection = collection;
     this.onSubmit = onSubmit;
+    this.collectionSkills = collectionSkills;
   }
   onOpen() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     this.setTitle(this.collection ? "Edit collection" : "New collection");
     let name = (_b = (_a = this.collection) == null ? void 0 : _a.name) != null ? _b : "";
     let description = (_d = (_c = this.collection) == null ? void 0 : _c.description) != null ? _d : "";
     let color = (_f = (_e = this.collection) == null ? void 0 : _e.color) != null ? _f : "#7f8c8d";
+    let skillIds = (_h = (_g = this.collectionSkills) == null ? void 0 : _g.map((skill) => skill.id)) != null ? _h : [];
     new import_obsidian2.Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => {
       name = value;
     }));
@@ -1243,11 +1245,41 @@ var CollectionEditModal = class extends import_obsidian2.Modal {
     new import_obsidian2.Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => {
       color = value;
     }));
+    const skillsEl = this.collectionSkills ? this.contentEl.createDiv({ cls: "skillhub-collection-edit-skills" }) : void 0;
+    const renderSkills = () => {
+      if (!skillsEl || !this.collectionSkills) return;
+      skillsEl.empty();
+      skillsEl.createEl("h3", { text: "Skills" });
+      const visibleSkills = this.collectionSkills.filter((skill) => skillIds.includes(skill.id));
+      if (visibleSkills.length === 0) {
+        skillsEl.createEl("span", { cls: "skillhub-collection-empty", text: "No skills in this collection." });
+        return;
+      }
+      for (const skill of visibleSkills) {
+        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill" });
+        row.createEl("span", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
+        const removeButton = row.createEl("button", {
+          cls: "skillhub-collection-edit-skill-remove",
+          text: "\xD7",
+          attr: { "aria-label": `Remove ${skill.nickname}` }
+        });
+        removeButton.addEventListener("click", () => {
+          skillIds = skillIds.filter((skillId) => skillId !== skill.id);
+          renderSkills();
+        });
+      }
+    };
     new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
       if (!name.trim()) return;
-      await this.onSubmit({ name: name.trim(), description: description.trim(), color });
+      await this.onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        color,
+        skillIds: this.collectionSkills ? skillIds : void 0
+      });
       this.close();
     }));
+    renderSkills();
   }
   onClose() {
     this.contentEl.empty();
@@ -1502,7 +1534,10 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       event.preventDefault();
       row.removeClass("is-drop-target");
       const skillId = ((_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-skill-id")) || ((_b = event.dataTransfer) == null ? void 0 : _b.getData("text/plain"));
-      if (skillId) void this.handleCollectionDrop(skillId, collection.id);
+      if (skillId) {
+        this.markCollectionDragHandled();
+        void this.handleCollectionDrop(skillId, collection.id);
+      }
     });
     const header = row.createDiv({ cls: "skillhub-collection-header" });
     header.createEl("strong", { text: collection.name });
@@ -1532,6 +1567,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     block.draggable = true;
     block.addEventListener("dragstart", (event) => {
       var _a, _b, _c, _d, _e;
+      this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
       (_a = event.dataTransfer) == null ? void 0 : _a.setData("text/plain", skill.id);
       (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-skill-id", skill.id);
       (_c = event.dataTransfer) == null ? void 0 : _c.setData("application/x-skillhub-collection-skill-id", skill.id);
@@ -1553,11 +1589,22 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       const draggedCollectionId = (_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-collection-id");
       const draggedCollectionSkillId = (_b = event.dataTransfer) == null ? void 0 : _b.getData("application/x-skillhub-collection-skill-id");
       if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
+        this.markCollectionDragHandled();
         void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(block, event));
         return;
       }
       const skillId = ((_c = event.dataTransfer) == null ? void 0 : _c.getData("application/x-skillhub-skill-id")) || ((_d = event.dataTransfer) == null ? void 0 : _d.getData("text/plain"));
-      if (!draggedCollectionId && skillId) void this.handleCollectionDrop(skillId, collection.id);
+      if (skillId) {
+        this.markCollectionDragHandled();
+        void this.handleCollectionDrop(skillId, collection.id);
+      }
+    });
+    block.addEventListener("dragend", () => {
+      const pendingCollectionDrag = this.pendingCollectionDrag;
+      if ((pendingCollectionDrag == null ? void 0 : pendingCollectionDrag.collectionId) === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
+        void this.removeSkillFromCollection(skill.id, collection.id);
+      }
+      this.pendingCollectionDrag = void 0;
     });
   }
   openDetailModal(skill) {
@@ -1609,11 +1656,13 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   openCollectionEditModal(collection) {
     new CollectionEditModal(this.app, collection, async (values) => {
-      this.plugin.registry.saveCollection({ ...collection, ...values });
+      var _a;
+      this.plugin.registry.saveCollection({ ...collection, ...values, skillIds: (_a = values.skillIds) != null ? _a : collection.skillIds });
+      if (values.skillIds) this.applyCollectionSkillIds(collection.id, values.skillIds);
       this.plugin.registry.recordEvent(createSkillEvent("collection_saved", void 0, { collectionId: collection.id }));
       await this.plugin.saveSkillHubData();
       this.render();
-    }).open();
+    }, this.getCollectionSkills(collection)).open();
   }
   async deleteCollection(collection) {
     this.plugin.registry.deleteCollection(collection.id);
@@ -1631,6 +1680,30 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     await this.plugin.saveSkillHubData();
     this.render();
   }
+  async removeSkillFromCollection(skillId, collectionId) {
+    const skill = this.plugin.registry.data.skills[skillId];
+    if (!(skill == null ? void 0 : skill.collectionIds.includes(collectionId))) return;
+    this.plugin.registry.updateSkillCollections(skillId, skill.collectionIds.filter((id) => id !== collectionId));
+    skill.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    this.plugin.registry.recordEvent(createSkillEvent("collection_saved", void 0, { collectionId, skillId }));
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+  applyCollectionSkillIds(collectionId, skillIds) {
+    const collection = this.plugin.registry.data.collections[collectionId];
+    if (!collection) return;
+    const validSkillIds = [...new Set(skillIds)].filter((skillId) => Boolean(this.plugin.registry.data.skills[skillId]));
+    const selectedSkillIds = new Set(validSkillIds);
+    collection.skillIds = validSkillIds;
+    for (const skill of Object.values(this.plugin.registry.data.skills)) {
+      if (selectedSkillIds.has(skill.id)) {
+        if (!skill.collectionIds.includes(collectionId)) skill.collectionIds.push(collectionId);
+      } else {
+        skill.collectionIds = skill.collectionIds.filter((id) => id !== collectionId);
+      }
+      skill.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    }
+  }
   async reorderCollectionSkill(collectionId, draggedSkillId, targetSkillId, afterTarget) {
     const collection = this.plugin.registry.data.collections[collectionId];
     if (!collection || draggedSkillId === targetSkillId || !collection.skillIds.includes(draggedSkillId) || !collection.skillIds.includes(targetSkillId)) return;
@@ -1642,6 +1715,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.plugin.registry.recordEvent(createSkillEvent("collection_saved", void 0, { collectionId, skillId: draggedSkillId }));
     await this.plugin.saveSkillHubData();
     this.render();
+  }
+  markCollectionDragHandled() {
+    if (this.pendingCollectionDrag) this.pendingCollectionDrag.handled = true;
   }
   openBulkDelete() {
     const records = this.getSelectedSkills();

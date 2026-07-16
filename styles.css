@@ -349,6 +349,15 @@
 
 .skillhub-collection-actions {
   overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.skillhub-collection-row:hover .skillhub-collection-actions,
+.skillhub-collection-row:focus-within .skillhub-collection-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .skillhub-collection-skill-block {
@@ -378,6 +387,49 @@
   border-color: var(--interactive-accent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
   transform: translateY(-1px);
+}
+
+.skillhub-collection-edit-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.skillhub-collection-edit-skills h3 {
+  margin: 0;
+  font-size: var(--font-ui-small);
+}
+
+.skillhub-collection-edit-skill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+.skillhub-collection-edit-skill-remove {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-error);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  transform: translateX(4px);
+}
+
+.skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-remove,
+.skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-remove {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
 }
 
 .skillhub-empty {

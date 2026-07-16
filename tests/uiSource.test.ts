@@ -105,4 +105,17 @@ describe("skill hub UI source", () => {
     expect(source).toContain("reorderCollectionSkill");
     expect(source).toContain("collection.skillIds = reorderedSkillIds");
   });
+
+  it("removes collection skills by drag-out and from the collection edit modal", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("pendingCollectionDrag");
+    expect(source).toContain("dragend");
+    expect(source).toContain("removeSkillFromCollection");
+    expect(source).toContain("applyCollectionSkillIds");
+    expect(modalSource).toContain("skillhub-collection-edit-skills");
+    expect(modalSource).toContain("skillhub-collection-edit-skill-remove");
+    expect(modalSource).toContain("skillIds");
+  });
 });

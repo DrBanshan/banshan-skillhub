@@ -416,13 +416,15 @@ export interface CollectionEditValues {
   name: string;
   description: string;
   color: string;
+  skillIds?: string[];
 }
 
 export class CollectionEditModal extends Modal {
   constructor(
     app: Modal["app"],
     private readonly collection: SkillCollection | undefined,
-    private readonly onSubmit: SubmitHandler<CollectionEditValues>
+    private readonly onSubmit: SubmitHandler<CollectionEditValues>,
+    private readonly collectionSkills?: SkillRecord[]
   ) {
     super(app);
   }
@@ -432,14 +434,48 @@ export class CollectionEditModal extends Modal {
     let name = this.collection?.name ?? "";
     let description = this.collection?.description ?? "";
     let color = this.collection?.color ?? "#7f8c8d";
+    let skillIds = this.collectionSkills?.map((skill) => skill.id) ?? [];
     new Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => { name = value; }));
     new Setting(this.contentEl).setName("Description").addText((text) => text.setValue(description).onChange((value) => { description = value; }));
     new Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => { color = value; }));
+    const skillsEl = this.collectionSkills ? this.contentEl.createDiv({ cls: "skillhub-collection-edit-skills" }) : undefined;
+
+    const renderSkills = (): void => {
+      if (!skillsEl || !this.collectionSkills) return;
+      skillsEl.empty();
+      skillsEl.createEl("h3", { text: "Skills" });
+      const visibleSkills = this.collectionSkills.filter((skill) => skillIds.includes(skill.id));
+      if (visibleSkills.length === 0) {
+        skillsEl.createEl("span", { cls: "skillhub-collection-empty", text: "No skills in this collection." });
+        return;
+      }
+
+      for (const skill of visibleSkills) {
+        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill" });
+        row.createEl("span", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
+        const removeButton = row.createEl("button", {
+          cls: "skillhub-collection-edit-skill-remove",
+          text: "×",
+          attr: { "aria-label": `Remove ${skill.nickname}` }
+        });
+        removeButton.addEventListener("click", () => {
+          skillIds = skillIds.filter((skillId) => skillId !== skill.id);
+          renderSkills();
+        });
+      }
+    };
+
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
       if (!name.trim()) return;
-      await this.onSubmit({ name: name.trim(), description: description.trim(), color });
+      await this.onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        color,
+        skillIds: this.collectionSkills ? skillIds : undefined
+      });
       this.close();
     }));
+    renderSkills();
   }
 
   onClose(): void {

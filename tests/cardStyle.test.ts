@@ -102,4 +102,15 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-collection-skill-block.is-drop-target");
     expect(css).toContain("border-color: var(--interactive-accent);");
   });
+
+  it("reveals collection actions and edit removal controls only on interaction", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-collection-actions");
+    expect(css).toContain(".skillhub-collection-row:hover .skillhub-collection-actions");
+    expect(css).toContain(".skillhub-collection-row:focus-within .skillhub-collection-actions");
+    expect(css).toContain(".skillhub-collection-edit-skill-remove");
+    expect(css).toContain(".skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-remove");
+    expect(css).toContain(".skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-remove");
+  });
 });

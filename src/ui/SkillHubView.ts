@@ -22,6 +22,7 @@ type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "do
 
 export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
+  private pendingCollectionDrag: { collectionId: string; skillId: string; handled: boolean } | undefined;
   private selectMode = false;
   private filterQuery = "";
 
@@ -198,7 +199,10 @@ export class SkillHubView extends ItemView {
       event.preventDefault();
       row.removeClass("is-drop-target");
       const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
-      if (skillId) void this.handleCollectionDrop(skillId, collection.id);
+      if (skillId) {
+        this.markCollectionDragHandled();
+        void this.handleCollectionDrop(skillId, collection.id);
+      }
     });
 
     const header = row.createDiv({ cls: "skillhub-collection-header" });
@@ -232,6 +236,7 @@ export class SkillHubView extends ItemView {
     });
     block.draggable = true;
     block.addEventListener("dragstart", (event) => {
+      this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
       event.dataTransfer?.setData("text/plain", skill.id);
       event.dataTransfer?.setData("application/x-skillhub-skill-id", skill.id);
       event.dataTransfer?.setData("application/x-skillhub-collection-skill-id", skill.id);
@@ -252,12 +257,23 @@ export class SkillHubView extends ItemView {
       const draggedCollectionId = event.dataTransfer?.getData("application/x-skillhub-collection-id");
       const draggedCollectionSkillId = event.dataTransfer?.getData("application/x-skillhub-collection-skill-id");
       if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
+        this.markCollectionDragHandled();
         void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(block, event));
         return;
       }
 
       const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
-      if (!draggedCollectionId && skillId) void this.handleCollectionDrop(skillId, collection.id);
+      if (skillId) {
+        this.markCollectionDragHandled();
+        void this.handleCollectionDrop(skillId, collection.id);
+      }
+    });
+    block.addEventListener("dragend", () => {
+      const pendingCollectionDrag = this.pendingCollectionDrag;
+      if (pendingCollectionDrag?.collectionId === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
+        void this.removeSkillFromCollection(skill.id, collection.id);
+      }
+      this.pendingCollectionDrag = undefined;
     });
   }
 
@@ -316,11 +332,12 @@ export class SkillHubView extends ItemView {
 
   private openCollectionEditModal(collection: SkillCollection): void {
     new CollectionEditModal(this.app, collection, async (values) => {
-      this.plugin.registry.saveCollection({ ...collection, ...values });
+      this.plugin.registry.saveCollection({ ...collection, ...values, skillIds: values.skillIds ?? collection.skillIds });
+      if (values.skillIds) this.applyCollectionSkillIds(collection.id, values.skillIds);
       this.plugin.registry.recordEvent(createSkillEvent("collection_saved", undefined, { collectionId: collection.id }));
       await this.plugin.saveSkillHubData();
       this.render();
-    }).open();
+    }, this.getCollectionSkills(collection)).open();
   }
 
   private async deleteCollection(collection: SkillCollection): Promise<void> {
@@ -342,6 +359,34 @@ export class SkillHubView extends ItemView {
     this.render();
   }
 
+  private async removeSkillFromCollection(skillId: string, collectionId: string): Promise<void> {
+    const skill = this.plugin.registry.data.skills[skillId];
+    if (!skill?.collectionIds.includes(collectionId)) return;
+
+    this.plugin.registry.updateSkillCollections(skillId, skill.collectionIds.filter((id) => id !== collectionId));
+    skill.updatedAt = new Date().toISOString();
+    this.plugin.registry.recordEvent(createSkillEvent("collection_saved", undefined, { collectionId, skillId }));
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+
+  private applyCollectionSkillIds(collectionId: string, skillIds: string[]): void {
+    const collection = this.plugin.registry.data.collections[collectionId];
+    if (!collection) return;
+
+    const validSkillIds = [...new Set(skillIds)].filter((skillId) => Boolean(this.plugin.registry.data.skills[skillId]));
+    const selectedSkillIds = new Set(validSkillIds);
+    collection.skillIds = validSkillIds;
+    for (const skill of Object.values(this.plugin.registry.data.skills)) {
+      if (selectedSkillIds.has(skill.id)) {
+        if (!skill.collectionIds.includes(collectionId)) skill.collectionIds.push(collectionId);
+      } else {
+        skill.collectionIds = skill.collectionIds.filter((id) => id !== collectionId);
+      }
+      skill.updatedAt = new Date().toISOString();
+    }
+  }
+
   private async reorderCollectionSkill(collectionId: string, draggedSkillId: string, targetSkillId: string, afterTarget: boolean): Promise<void> {
     const collection = this.plugin.registry.data.collections[collectionId];
     if (!collection || draggedSkillId === targetSkillId || !collection.skillIds.includes(draggedSkillId) || !collection.skillIds.includes(targetSkillId)) return;
@@ -355,6 +400,10 @@ export class SkillHubView extends ItemView {
     this.plugin.registry.recordEvent(createSkillEvent("collection_saved", undefined, { collectionId, skillId: draggedSkillId }));
     await this.plugin.saveSkillHubData();
     this.render();
+  }
+
+  private markCollectionDragHandled(): void {
+    if (this.pendingCollectionDrag) this.pendingCollectionDrag.handled = true;
   }
 
   private openBulkDelete(): void {
