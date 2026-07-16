@@ -389,6 +389,29 @@ export class SkillDetailModal extends Modal {
   }
 }
 
+export class CollectionDetailModal extends Modal {
+  constructor(app: Modal["app"], private readonly collection: SkillCollection, private readonly skills: SkillRecord[]) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle(this.collection.name);
+    this.addDetail("Description", this.collection.description || "No description provided.");
+    this.addDetail("Skills", this.skills.map((skill) => skill.nickname).join(", ") || "None");
+    this.addDetail("Skill count", String(this.skills.length));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private addDetail(label: string, value: string): void {
+    const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
+    row.createEl("strong", { text: label });
+    row.createEl("span", { text: value });
+  }
+}
+
 export interface CollectionEditValues {
   name: string;
   description: string;

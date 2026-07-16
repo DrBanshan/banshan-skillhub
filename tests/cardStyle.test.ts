@@ -81,4 +81,15 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-toolbar-button:active");
     expect(css).toContain("transform: translate(3px, 3px);");
   });
+
+  it("styles collection rows as full-width drop targets", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-collections-board");
+    expect(css).toContain(".skillhub-collection-row");
+    expect(css).toContain("grid-column: 1 / -1;");
+    expect(css).toContain(".skillhub-collection-row.is-drop-target");
+    expect(css).toContain("border-color: var(--interactive-accent);");
+    expect(css).toContain(".skillhub-collection-actions");
+  });
 });

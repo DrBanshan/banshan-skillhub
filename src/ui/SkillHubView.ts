@@ -6,6 +6,8 @@ import type { SkillCollection, SkillRecord } from "../types";
 import {
   BulkCollectionMembershipModal,
   BulkDeleteConfirmationModal,
+  CollectionDetailModal,
+  CollectionEditModal,
   CollectionManagerModal,
   DeleteConfirmationModal,
   GitHubUrlModal,
@@ -118,17 +120,19 @@ export class SkillHubView extends ItemView {
         cls: "skillhub-empty",
         text: Object.keys(this.plugin.registry.data.skills).length === 0 ? "No skills installed yet." : "No skills match this filter."
       });
+      this.renderCollectionRows(container);
       return;
     }
 
     const grid = container.createDiv({ cls: "skillhub-grid" });
     for (const skill of skills) this.renderCard(grid, skill);
+    this.renderCollectionRows(container);
   }
 
   private renderCard(grid: HTMLElement, skill: SkillRecord): void {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
-    card.draggable = this.isCustomSort();
+    card.draggable = this.isCustomSort() || this.hasCollections();
     if (card.draggable) {
       card.addClass("is-draggable");
       card.addEventListener("dragstart", (event) => {
@@ -136,15 +140,17 @@ export class SkillHubView extends ItemView {
         event.dataTransfer?.setData("application/x-skillhub-skill-id", skill.id);
         event.dataTransfer?.setDragImage(card, 20, 20);
       });
-      card.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        event.dataTransfer!.dropEffect = "move";
-      });
-      card.addEventListener("drop", (event) => {
-        event.preventDefault();
-        const draggedSkillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
-        if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
-      });
+      if (this.isCustomSort()) {
+        card.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        });
+        card.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const draggedSkillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
+          if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
+        });
+      }
     }
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
     if (this.selectMode) {
@@ -167,6 +173,57 @@ export class SkillHubView extends ItemView {
     this.addCardActionButton(actions, "Details", "details", () => this.openDetailModal(skill));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openEditModal(skill));
     this.addCardActionButton(actions, "Delete", "delete", () => this.openDeleteModal(skill));
+  }
+
+  private renderCollectionRows(container: HTMLElement): void {
+    const collections = Object.values(this.plugin.registry.data.collections)
+      .sort((left, right) => left.name.localeCompare(right.name));
+    if (collections.length === 0) return;
+
+    const board = container.createDiv({ cls: "skillhub-collections-board" });
+    for (const collection of collections) this.renderCollectionRow(board, collection);
+  }
+
+  private renderCollectionRow(board: HTMLElement, collection: SkillCollection): void {
+    const row = board.createDiv({ cls: "skillhub-collection-row" });
+    if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
+
+    row.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      row.addClass("is-drop-target");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+    row.addEventListener("dragleave", () => row.removeClass("is-drop-target"));
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      row.removeClass("is-drop-target");
+      const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
+      if (skillId) void this.handleCollectionDrop(skillId, collection.id);
+    });
+
+    const header = row.createDiv({ cls: "skillhub-collection-header" });
+    header.createEl("strong", { text: collection.name });
+    header.createEl("span", {
+      cls: "skillhub-collection-count",
+      text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}`
+    });
+
+    if (collection.description) row.createEl("p", { cls: "skillhub-collection-description", text: collection.description });
+
+    const members = row.createDiv({ cls: "skillhub-collection-members" });
+    const memberSkills = this.getCollectionSkills(collection);
+    if (memberSkills.length === 0) {
+      members.createEl("span", { cls: "skillhub-collection-empty", text: "Drop skills here" });
+    } else {
+      for (const skill of memberSkills) {
+        members.createEl("span", { cls: "skillhub-chip", text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
+      }
+    }
+
+    const actions = row.createDiv({ cls: "skillhub-collection-actions" });
+    this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
+    this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
+    this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
   }
 
   private openDetailModal(skill: SkillRecord): void {
@@ -216,6 +273,38 @@ export class SkillHubView extends ItemView {
         new Notice(error instanceof Error ? error.message : String(error));
       }
     }).open();
+  }
+
+  private openCollectionDetailModal(collection: SkillCollection): void {
+    new CollectionDetailModal(this.app, collection, this.getCollectionSkills(collection)).open();
+  }
+
+  private openCollectionEditModal(collection: SkillCollection): void {
+    new CollectionEditModal(this.app, collection, async (values) => {
+      this.plugin.registry.saveCollection({ ...collection, ...values });
+      this.plugin.registry.recordEvent(createSkillEvent("collection_saved", undefined, { collectionId: collection.id }));
+      await this.plugin.saveSkillHubData();
+      this.render();
+    }).open();
+  }
+
+  private async deleteCollection(collection: SkillCollection): Promise<void> {
+    this.plugin.registry.deleteCollection(collection.id);
+    this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+
+  private async handleCollectionDrop(skillId: string, collectionId: string): Promise<void> {
+    const skill = this.plugin.registry.data.skills[skillId];
+    const collection = this.plugin.registry.data.collections[collectionId];
+    if (!skill || !collection || skill.collectionIds.includes(collectionId)) return;
+
+    this.plugin.registry.updateSkillCollections(skillId, [...skill.collectionIds, collectionId]);
+    skill.updatedAt = new Date().toISOString();
+    this.plugin.registry.recordEvent(createSkillEvent("collection_saved", undefined, { collectionId, skillId }));
+    await this.plugin.saveSkillHubData();
+    this.render();
   }
 
   private openBulkDelete(): void {
@@ -337,6 +426,16 @@ export class SkillHubView extends ItemView {
 
   private isCustomSort(): boolean {
     return this.plugin.data.settings.defaultSort === "custom";
+  }
+
+  private hasCollections(): boolean {
+    return Object.keys(this.plugin.registry.data.collections).length > 0;
+  }
+
+  private getCollectionSkills(collection: SkillCollection): SkillRecord[] {
+    return collection.skillIds
+      .map((skillId) => this.plugin.registry.data.skills[skillId])
+      .filter((skill): skill is SkillRecord => Boolean(skill));
   }
 
   private removeMissingSelections(): void {

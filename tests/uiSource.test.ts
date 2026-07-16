@@ -81,4 +81,18 @@ describe("skill hub UI source", () => {
     expect(source).toContain("reorderSkill");
     expect(source).toContain("skillOrder");
   });
+
+  it("renders collection rows that accept dropped skills and expose icon actions", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("renderCollectionRows");
+    expect(source).toContain("skillhub-collection-row");
+    expect(source).toContain("handleCollectionDrop");
+    expect(source).toContain("updateSkillCollections");
+    expect(source).toContain("openCollectionDetailModal");
+    expect(source).toContain("openCollectionEditModal");
+    expect(source).toContain("deleteCollection");
+    expect(modalSource).toContain("CollectionDetailModal");
+  });
 });
