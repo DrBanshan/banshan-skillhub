@@ -66,6 +66,7 @@
 
 .skillhub-toolbar-icon {
   position: absolute;
+  left: auto;
   right: 0;
   width: 13px;
   margin-right: 20px;
@@ -89,10 +90,12 @@
 }
 
 .skillhub-toolbar-button:hover .skillhub-toolbar-icon {
-  right: 43%;
+  left: 50%;
+  right: auto;
   margin: 0;
   padding: 0;
   border: none;
+  transform: translateX(-50%);
   transition-duration: 0.3s;
 }
 
@@ -233,7 +236,7 @@
 }
 
 .skillhub-edit-button:hover {
-  background-color: rgb(116, 82, 238) !important;
+  background-color: var(--interactive-accent) !important;
 }
 
 .skillhub-delete-button:hover {
