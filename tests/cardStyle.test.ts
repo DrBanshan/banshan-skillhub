@@ -62,9 +62,11 @@ describe("skill card color styling", () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
     expect(css).toContain(".skillhub-toolbar-button");
-    expect(css).toContain("width: 100px;");
+    expect(css).toContain("min-width: 132px;");
+    expect(css).toContain("width: max-content;");
+    expect(css).toContain("background-color: var(--interactive-accent) !important;");
     expect(css).toContain("height: 40px;");
-    expect(css).toContain("box-shadow: 5px 5px 0 rgb(140, 32, 212);");
+    expect(css).toContain("box-shadow: 5px 5px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);");
     expect(css).toContain(".skillhub-toolbar-button:hover");
     expect(css).toContain("color: transparent !important;");
     expect(css).toContain(".skillhub-toolbar-button:hover .skillhub-toolbar-icon");
