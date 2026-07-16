@@ -753,7 +753,8 @@ var DEFAULT_SETTINGS = {
   installMethod: "symlink",
   npxExecutionEnabled: false,
   defaultSymlinkConflictBehavior: "skip",
-  defaultSort: "nickname"
+  defaultSort: "nickname",
+  skillOrder: []
 };
 
 // src/registry.ts
@@ -849,7 +850,7 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
       this.skillHubPlugin.data.settings.installMethod = value;
       await this.skillHubPlugin.saveSkillHubData();
     }));
-    new import_obsidian.Setting(containerEl).setName("Default sort").setDesc("Initial ordering in the Skill Hub view.").addDropdown((dropdown) => dropdown.addOption("nickname", "Nickname").addOption("originalName", "Original name").addOption("updatedAt", "Recently updated").setValue(this.skillHubPlugin.data.settings.defaultSort).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("Default sort").setDesc("Initial ordering in the Skill Hub view.").addDropdown((dropdown) => dropdown.addOption("nickname", "Nickname").addOption("originalName", "Original name").addOption("updatedAt", "Recently updated").addOption("custom", "Custom order").setValue(this.skillHubPlugin.data.settings.defaultSort).onChange(async (value) => {
       this.skillHubPlugin.data.settings.defaultSort = value;
       await this.skillHubPlugin.saveSkillHubData();
       this.skillHubPlugin.refreshSkillHub();
@@ -1385,6 +1386,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.addSortOption(sort, "nickname", "Nickname");
     this.addSortOption(sort, "originalName", "Original name");
     this.addSortOption(sort, "updatedAt", "Recently updated");
+    this.addSortOption(sort, "custom", "Custom order");
     sort.value = this.plugin.data.settings.defaultSort;
     const results = this.contentEl.createDiv();
     filter.addEventListener("input", () => {
@@ -1414,6 +1416,26 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   renderCard(grid, skill) {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
+    card.draggable = this.isCustomSort();
+    if (card.draggable) {
+      card.addClass("is-draggable");
+      card.addEventListener("dragstart", (event) => {
+        var _a, _b, _c;
+        (_a = event.dataTransfer) == null ? void 0 : _a.setData("text/plain", skill.id);
+        (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-skill-id", skill.id);
+        (_c = event.dataTransfer) == null ? void 0 : _c.setDragImage(card, 20, 20);
+      });
+      card.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      });
+      card.addEventListener("drop", (event) => {
+        var _a, _b;
+        event.preventDefault();
+        const draggedSkillId = ((_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-skill-id")) || ((_b = event.dataTransfer) == null ? void 0 : _b.getData("text/plain"));
+        if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
+      });
+    }
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
     if (this.selectMode) {
       const checkbox = card.createEl("input", { type: "checkbox", cls: "skillhub-card-select" });
@@ -1542,18 +1564,52 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   getVisibleSkills() {
     const query = this.filterQuery.trim().toLocaleLowerCase();
     const collections = this.plugin.registry.data.collections;
-    return Object.values(this.plugin.registry.data.skills).filter((skill) => {
+    const visibleSkills = Object.values(this.plugin.registry.data.skills).filter((skill) => {
       if (!query) return true;
       const collectionNames = skill.collectionIds.map((id) => {
         var _a, _b;
         return (_b = (_a = collections[id]) == null ? void 0 : _a.name) != null ? _b : "";
       });
       return [skill.nickname, skill.originalName, skill.description, ...skill.tags, ...collectionNames].some((value) => value.toLocaleLowerCase().includes(query));
-    }).sort((left, right) => {
-      const sort = this.plugin.data.settings.defaultSort;
+    });
+    const sort = this.plugin.data.settings.defaultSort;
+    if (sort === "custom") return this.sortByCustomOrder(visibleSkills);
+    return visibleSkills.sort((left, right) => {
       if (sort === "updatedAt") return right.updatedAt.localeCompare(left.updatedAt);
       return left[sort].localeCompare(right[sort]);
     });
+  }
+  sortByCustomOrder(skills) {
+    const orderIndex = new Map(this.plugin.data.settings.skillOrder.map((id, index) => [id, index]));
+    return [...skills].sort((left, right) => {
+      var _a, _b;
+      const leftIndex = (_a = orderIndex.get(left.id)) != null ? _a : Number.MAX_SAFE_INTEGER;
+      const rightIndex = (_b = orderIndex.get(right.id)) != null ? _b : Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      return left.nickname.localeCompare(right.nickname);
+    });
+  }
+  async reorderSkill(draggedSkillId, targetSkillId, afterTarget) {
+    if (draggedSkillId === targetSkillId || !this.plugin.registry.data.skills[draggedSkillId] || !this.plugin.registry.data.skills[targetSkillId]) return;
+    const knownSkillIds = new Set(Object.keys(this.plugin.registry.data.skills));
+    const orderedIds = [
+      ...this.plugin.data.settings.skillOrder.filter((id) => knownSkillIds.has(id)),
+      ...Object.keys(this.plugin.registry.data.skills).filter((id) => !this.plugin.data.settings.skillOrder.includes(id))
+    ];
+    const withoutDragged = orderedIds.filter((id) => id !== draggedSkillId);
+    const targetIndex = withoutDragged.indexOf(targetSkillId);
+    if (targetIndex === -1) return;
+    withoutDragged.splice(targetIndex + (afterTarget ? 1 : 0), 0, draggedSkillId);
+    this.plugin.data.settings.skillOrder = withoutDragged;
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+  shouldDropAfter(card, event) {
+    const rect = card.getBoundingClientRect();
+    return event.clientY > rect.top + rect.height / 2 || event.clientY >= rect.top && event.clientY <= rect.bottom && event.clientX > rect.left + rect.width / 2;
+  }
+  isCustomSort() {
+    return this.plugin.data.settings.defaultSort === "custom";
   }
   removeMissingSelections() {
     for (const id of this.selectedSkillIds) {

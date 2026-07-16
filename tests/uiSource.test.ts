@@ -70,4 +70,15 @@ describe("skill hub UI source", () => {
     expect(source).toContain("\"node\"");
     expect(source).toContain("\"download\"");
   });
+
+  it("supports custom drag ordering from the sort dropdown", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("addSortOption(sort, \"custom\", \"Custom order\")");
+    expect(source).toContain("card.draggable = this.isCustomSort()");
+    expect(source).toContain("dragstart");
+    expect(source).toContain("drop");
+    expect(source).toContain("reorderSkill");
+    expect(source).toContain("skillOrder");
+  });
 });

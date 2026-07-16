@@ -140,6 +140,14 @@
   z-index: 1;
 }
 
+.skillhub-card.is-draggable {
+  cursor: grab;
+}
+
+.skillhub-card.is-draggable:active {
+  cursor: grabbing;
+}
+
 .skillhub-card.is-selected {
   border-color: var(--interactive-accent);
   box-shadow:
@@ -232,7 +240,7 @@
 }
 
 .skillhub-details-button:hover {
-  background-color: rgb(45, 140, 240) !important;
+  background-color: var(--interactive-accent) !important;
 }
 
 .skillhub-edit-button:hover {

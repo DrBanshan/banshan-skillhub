@@ -94,6 +94,7 @@ export class SkillHubView extends ItemView {
     this.addSortOption(sort, "nickname", "Nickname");
     this.addSortOption(sort, "originalName", "Original name");
     this.addSortOption(sort, "updatedAt", "Recently updated");
+    this.addSortOption(sort, "custom", "Custom order");
     sort.value = this.plugin.data.settings.defaultSort;
 
     const results = this.contentEl.createDiv();
@@ -127,6 +128,24 @@ export class SkillHubView extends ItemView {
   private renderCard(grid: HTMLElement, skill: SkillRecord): void {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
+    card.draggable = this.isCustomSort();
+    if (card.draggable) {
+      card.addClass("is-draggable");
+      card.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("text/plain", skill.id);
+        event.dataTransfer?.setData("application/x-skillhub-skill-id", skill.id);
+        event.dataTransfer?.setDragImage(card, 20, 20);
+      });
+      card.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = "move";
+      });
+      card.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const draggedSkillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
+        if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
+      });
+    }
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
     if (this.selectMode) {
       const checkbox = card.createEl("input", { type: "checkbox", cls: "skillhub-card-select" });
@@ -266,18 +285,58 @@ export class SkillHubView extends ItemView {
   private getVisibleSkills(): SkillRecord[] {
     const query = this.filterQuery.trim().toLocaleLowerCase();
     const collections = this.plugin.registry.data.collections;
-    return Object.values(this.plugin.registry.data.skills)
+    const visibleSkills = Object.values(this.plugin.registry.data.skills)
       .filter((skill) => {
         if (!query) return true;
         const collectionNames = skill.collectionIds.map((id) => collections[id]?.name ?? "");
         return [skill.nickname, skill.originalName, skill.description, ...skill.tags, ...collectionNames]
           .some((value) => value.toLocaleLowerCase().includes(query));
-      })
-      .sort((left, right) => {
-        const sort = this.plugin.data.settings.defaultSort;
-        if (sort === "updatedAt") return right.updatedAt.localeCompare(left.updatedAt);
-        return left[sort].localeCompare(right[sort]);
       });
+    const sort = this.plugin.data.settings.defaultSort;
+    if (sort === "custom") return this.sortByCustomOrder(visibleSkills);
+    return visibleSkills.sort((left, right) => {
+      if (sort === "updatedAt") return right.updatedAt.localeCompare(left.updatedAt);
+      return left[sort].localeCompare(right[sort]);
+    });
+  }
+
+  private sortByCustomOrder(skills: SkillRecord[]): SkillRecord[] {
+    const orderIndex = new Map(this.plugin.data.settings.skillOrder.map((id, index) => [id, index]));
+    return [...skills].sort((left, right) => {
+      const leftIndex = orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      return left.nickname.localeCompare(right.nickname);
+    });
+  }
+
+  private async reorderSkill(draggedSkillId: string, targetSkillId: string, afterTarget: boolean): Promise<void> {
+    if (draggedSkillId === targetSkillId || !this.plugin.registry.data.skills[draggedSkillId] || !this.plugin.registry.data.skills[targetSkillId]) return;
+    const knownSkillIds = new Set(Object.keys(this.plugin.registry.data.skills));
+    const orderedIds = [
+      ...this.plugin.data.settings.skillOrder.filter((id) => knownSkillIds.has(id)),
+      ...Object.keys(this.plugin.registry.data.skills).filter((id) => !this.plugin.data.settings.skillOrder.includes(id))
+    ];
+    const withoutDragged = orderedIds.filter((id) => id !== draggedSkillId);
+    const targetIndex = withoutDragged.indexOf(targetSkillId);
+    if (targetIndex === -1) return;
+    withoutDragged.splice(targetIndex + (afterTarget ? 1 : 0), 0, draggedSkillId);
+    this.plugin.data.settings.skillOrder = withoutDragged;
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+
+  private shouldDropAfter(card: HTMLElement, event: DragEvent): boolean {
+    const rect = card.getBoundingClientRect();
+    return event.clientY > rect.top + rect.height / 2 || (
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom &&
+      event.clientX > rect.left + rect.width / 2
+    );
+  }
+
+  private isCustomSort(): boolean {
+    return this.plugin.data.settings.defaultSort === "custom";
   }
 
   private removeMissingSelections(): void {

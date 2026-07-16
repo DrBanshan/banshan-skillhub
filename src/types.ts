@@ -5,7 +5,8 @@ export interface SkillHubSettings {
   installMethod: InstallMethod;
   npxExecutionEnabled: boolean;
   defaultSymlinkConflictBehavior: "skip" | "overwrite";
-  defaultSort: "nickname" | "originalName" | "updatedAt";
+  defaultSort: "nickname" | "originalName" | "updatedAt" | "custom";
+  skillOrder: string[];
 }
 
 export interface SkillSource {

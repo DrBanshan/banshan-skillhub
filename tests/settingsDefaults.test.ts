@@ -8,7 +8,8 @@ describe("DEFAULT_SETTINGS", () => {
       installMethod: "symlink",
       npxExecutionEnabled: false,
       defaultSymlinkConflictBehavior: "skip",
-      defaultSort: "nickname"
+      defaultSort: "nickname",
+      skillOrder: []
     });
   });
 });

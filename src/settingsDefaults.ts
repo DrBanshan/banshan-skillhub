@@ -5,5 +5,6 @@ export const DEFAULT_SETTINGS: SkillHubSettings = {
   installMethod: "symlink",
   npxExecutionEnabled: false,
   defaultSymlinkConflictBehavior: "skip",
-  defaultSort: "nickname"
+  defaultSort: "nickname",
+  skillOrder: []
 };

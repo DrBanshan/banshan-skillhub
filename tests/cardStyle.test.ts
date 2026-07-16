@@ -51,6 +51,8 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-card-action-button");
     expect(css).toContain("width: 40px;");
     expect(css).toContain("height: 40px;");
+    expect(css).toContain(".skillhub-details-button:hover");
+    expect(css).toContain("background-color: var(--interactive-accent) !important;");
     expect(css).toContain(".skillhub-delete-button:hover");
     expect(css).toContain("background-color: rgb(237, 56, 56) !important;");
     expect(css).toContain(".skillhub-edit-button:hover");

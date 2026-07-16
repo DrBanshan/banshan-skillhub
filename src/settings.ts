@@ -49,6 +49,7 @@ export class SkillHubSettingTab extends PluginSettingTab {
         .addOption("nickname", "Nickname")
         .addOption("originalName", "Original name")
         .addOption("updatedAt", "Recently updated")
+        .addOption("custom", "Custom order")
         .setValue(this.skillHubPlugin.data.settings.defaultSort)
         .onChange(async (value) => {
           this.skillHubPlugin.data.settings.defaultSort = value as SkillHubSettings["defaultSort"];
