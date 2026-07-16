@@ -74,6 +74,7 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-toolbar-button:hover");
     expect(css).toContain("color: transparent !important;");
     expect(css).toContain(".skillhub-toolbar-button:hover .skillhub-toolbar-icon");
+    expect(css).toContain("width: 19.5px;");
     expect(css).toContain("left: 50%;");
     expect(css).toContain("right: auto;");
     expect(css).toContain("transform: translateX(-50%);");
