@@ -92,4 +92,14 @@ describe("skill card color styling", () => {
     expect(css).toContain("border-color: var(--interactive-accent);");
     expect(css).toContain(".skillhub-collection-actions");
   });
+
+  it("styles collection skills as neutral reorderable blocks", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".skillhub-collection-skill-block");
+    expect(css).toContain("background: var(--background-primary);");
+    expect(css).toContain("cursor: grab;");
+    expect(css).toContain(".skillhub-collection-skill-block.is-drop-target");
+    expect(css).toContain("border-color: var(--interactive-accent);");
+  });
 });

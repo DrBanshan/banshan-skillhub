@@ -95,4 +95,14 @@ describe("skill hub UI source", () => {
     expect(source).toContain("deleteCollection");
     expect(modalSource).toContain("CollectionDetailModal");
   });
+
+  it("renders collection skills as reorderable workflow blocks", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("renderCollectionSkillBlock");
+    expect(source).toContain("skillhub-collection-skill-block");
+    expect(source).toContain("application/x-skillhub-collection-skill-id");
+    expect(source).toContain("reorderCollectionSkill");
+    expect(source).toContain("collection.skillIds = reorderedSkillIds");
+  });
 });

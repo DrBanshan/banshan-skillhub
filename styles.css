@@ -351,6 +351,35 @@
   overflow: visible;
 }
 
+.skillhub-collection-skill-block {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: grab;
+  font-size: var(--font-ui-small);
+  line-height: 1.2;
+  box-shadow: none !important;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.skillhub-collection-skill-block:hover,
+.skillhub-collection-skill-block:focus-visible {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border)) !important;
+}
+
+.skillhub-collection-skill-block:active {
+  cursor: grabbing;
+}
+
+.skillhub-collection-skill-block.is-drop-target {
+  border-color: var(--interactive-accent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+  transform: translateY(-1px);
+}
+
 .skillhub-empty {
   margin: 24px 0;
   color: var(--text-muted);

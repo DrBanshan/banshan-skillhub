@@ -1516,14 +1516,49 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     if (memberSkills.length === 0) {
       members.createEl("span", { cls: "skillhub-collection-empty", text: "Drop skills here" });
     } else {
-      for (const skill of memberSkills) {
-        members.createEl("span", { cls: "skillhub-chip", text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
-      }
+      for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
     }
     const actions = row.createDiv({ cls: "skillhub-collection-actions" });
     this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
     this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
+  }
+  renderCollectionSkillBlock(members, collection, skill) {
+    const block = members.createEl("button", {
+      cls: "skillhub-collection-skill-block",
+      text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`,
+      attr: { "aria-label": `Reorder ${skill.nickname}` }
+    });
+    block.draggable = true;
+    block.addEventListener("dragstart", (event) => {
+      var _a, _b, _c, _d, _e;
+      (_a = event.dataTransfer) == null ? void 0 : _a.setData("text/plain", skill.id);
+      (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-skill-id", skill.id);
+      (_c = event.dataTransfer) == null ? void 0 : _c.setData("application/x-skillhub-collection-skill-id", skill.id);
+      (_d = event.dataTransfer) == null ? void 0 : _d.setData("application/x-skillhub-collection-id", collection.id);
+      (_e = event.dataTransfer) == null ? void 0 : _e.setDragImage(block, 20, 20);
+    });
+    block.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      block.addClass("is-drop-target");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    });
+    block.addEventListener("dragleave", () => block.removeClass("is-drop-target"));
+    block.addEventListener("drop", (event) => {
+      var _a, _b, _c, _d;
+      event.preventDefault();
+      event.stopPropagation();
+      block.removeClass("is-drop-target");
+      const draggedCollectionId = (_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-collection-id");
+      const draggedCollectionSkillId = (_b = event.dataTransfer) == null ? void 0 : _b.getData("application/x-skillhub-collection-skill-id");
+      if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
+        void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(block, event));
+        return;
+      }
+      const skillId = ((_c = event.dataTransfer) == null ? void 0 : _c.getData("application/x-skillhub-skill-id")) || ((_d = event.dataTransfer) == null ? void 0 : _d.getData("text/plain"));
+      if (!draggedCollectionId && skillId) void this.handleCollectionDrop(skillId, collection.id);
+    });
   }
   openDetailModal(skill) {
     new SkillDetailModal(this.app, skill, Object.values(this.plugin.registry.data.collections)).open();
@@ -1593,6 +1628,18 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.plugin.registry.updateSkillCollections(skillId, [...skill.collectionIds, collectionId]);
     skill.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     this.plugin.registry.recordEvent(createSkillEvent("collection_saved", void 0, { collectionId, skillId }));
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+  async reorderCollectionSkill(collectionId, draggedSkillId, targetSkillId, afterTarget) {
+    const collection = this.plugin.registry.data.collections[collectionId];
+    if (!collection || draggedSkillId === targetSkillId || !collection.skillIds.includes(draggedSkillId) || !collection.skillIds.includes(targetSkillId)) return;
+    const reorderedSkillIds = collection.skillIds.filter((skillId) => skillId !== draggedSkillId);
+    const targetIndex = reorderedSkillIds.indexOf(targetSkillId);
+    if (targetIndex === -1) return;
+    reorderedSkillIds.splice(targetIndex + (afterTarget ? 1 : 0), 0, draggedSkillId);
+    collection.skillIds = reorderedSkillIds;
+    this.plugin.registry.recordEvent(createSkillEvent("collection_saved", void 0, { collectionId, skillId: draggedSkillId }));
     await this.plugin.saveSkillHubData();
     this.render();
   }
