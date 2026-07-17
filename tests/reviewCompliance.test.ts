@@ -16,7 +16,8 @@ describe("Obsidian review compliance", () => {
     const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 
     expect(manifest.minAppVersion).toBe("1.13.0");
-    expect(settingsSource).toContain(".setHeading()");
+    expect(settingsSource).not.toContain("display(): void");
+    expect(settingsSource).not.toContain(".setHeading()");
     expect(settingsSource).toContain("SettingDefinitionItem");
     expect(settingsSource).toContain("getSettingDefinitions()");
     expect(settingsSource).toContain("getControlValue(key: SkillHubSettingKey)");
