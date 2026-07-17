@@ -21,6 +21,18 @@ describe("skill card color styling", () => {
     expect(css).toContain("opacity: 1;");
   });
 
+  it("uses Obsidian purple glow instead of selection checkboxes", async () => {
+    const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(css).not.toContain(".skillhub-card-select");
+    expect(css).not.toContain(".skillhub-collection-select");
+    expect(css).toContain(".skillhub-card.is-selected");
+    expect(css).toContain(".skillhub-collection-row.is-selected");
+    expect(css).toContain("0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent)");
+    expect(css).toContain(".skillhub-card.is-selectable");
+    expect(css).toContain(".skillhub-collection-row.is-selectable");
+  });
+
   it("shows the tag delete control only when interacting with the tag", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 

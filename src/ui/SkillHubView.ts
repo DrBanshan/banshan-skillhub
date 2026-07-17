@@ -140,6 +140,7 @@ export class SkillHubView extends ItemView {
   private renderCard(grid: HTMLElement, skill: SkillRecord): void {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
+    if (this.selectMode) this.configureSelectableBlock(card, selected, () => this.toggleSkillSelection(skill.id));
     card.draggable = this.isCustomSort() || this.hasCollections();
     if (card.draggable) {
       card.addClass("is-draggable");
@@ -161,14 +162,6 @@ export class SkillHubView extends ItemView {
       }
     }
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
-    if (this.selectMode) {
-      const checkbox = card.createEl("input", { type: "checkbox", cls: "skillhub-card-select" });
-      checkbox.checked = selected;
-      checkbox.addEventListener("change", () => {
-        checkbox.checked ? this.selectedSkillIds.add(skill.id) : this.selectedSkillIds.delete(skill.id);
-        this.render();
-      });
-    }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
     if (skill.originalName !== skill.nickname) card.createSpan({ cls: "skillhub-original-name", text: skill.originalName });
     const chips = card.createDiv({ cls: "skillhub-chips" });
@@ -195,16 +188,9 @@ export class SkillHubView extends ItemView {
 
   private renderCollectionRow(board: HTMLElement, collection: SkillCollection): void {
     const selected = this.selectedCollectionIds.has(collection.id);
-    const row = board.createDiv({ cls: "skillhub-collection-row" });
+    const row = board.createDiv({ cls: `skillhub-collection-row${selected ? " is-selected" : ""}` });
     if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
-    if (this.selectMode) {
-      const checkbox = row.createEl("input", { type: "checkbox", cls: "skillhub-collection-select" });
-      checkbox.checked = selected;
-      checkbox.addEventListener("change", () => {
-        checkbox.checked ? this.selectedCollectionIds.add(collection.id) : this.selectedCollectionIds.delete(collection.id);
-        this.render();
-      });
-    }
+    if (this.selectMode) this.configureSelectableBlock(row, selected, () => this.toggleCollectionSelection(collection.id));
 
     row.addEventListener("dragover", (event) => {
       event.preventDefault();
@@ -435,6 +421,36 @@ export class SkillHubView extends ItemView {
 
   private markCollectionDragHandled(): void {
     if (this.pendingCollectionDrag) this.pendingCollectionDrag.handled = true;
+  }
+
+  private configureSelectableBlock(element: HTMLElement, selected: boolean, onToggle: () => void): void {
+    element.addClass("is-selectable");
+    element.setAttribute("role", "button");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("aria-pressed", selected ? "true" : "false");
+    element.addEventListener("click", (event) => {
+      if (this.isInteractiveSelectionTarget(event.target)) return;
+      onToggle();
+    });
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      onToggle();
+    });
+  }
+
+  private isInteractiveSelectionTarget(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && Boolean(target.closest("button, input, select, textarea, a"));
+  }
+
+  private toggleSkillSelection(skillId: string): void {
+    this.selectedSkillIds.has(skillId) ? this.selectedSkillIds.delete(skillId) : this.selectedSkillIds.add(skillId);
+    this.render();
+  }
+
+  private toggleCollectionSelection(collectionId: string): void {
+    this.selectedCollectionIds.has(collectionId) ? this.selectedCollectionIds.delete(collectionId) : this.selectedCollectionIds.add(collectionId);
+    this.render();
   }
 
   private openBulkDelete(): void {

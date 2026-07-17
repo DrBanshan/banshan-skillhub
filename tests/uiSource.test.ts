@@ -133,7 +133,10 @@ describe("skill hub UI source", () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
 
     expect(source).toContain("selectedCollectionIds");
-    expect(source).toContain("skillhub-collection-select");
+    expect(source).toContain("toggleCollectionSelection");
+    expect(source).toContain("toggleSkillSelection");
+    expect(source).not.toContain("skillhub-collection-select");
+    expect(source).not.toContain("skillhub-card-select");
     expect(source).toContain("getSelectedInstallSkills");
     expect(source).toContain("resolveInstallSkills");
     expect(source).toContain("this.addToolbarButton(toolbar, \"Install\", \"download\", () => this.installSelectedSkills())");

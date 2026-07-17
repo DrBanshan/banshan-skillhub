@@ -148,11 +148,27 @@ button.skillhub-toolbar-button:disabled {
   cursor: grabbing;
 }
 
+.skillhub-card.is-selectable,
+.skillhub-collection-row.is-selectable {
+  cursor: pointer;
+}
+
 .skillhub-card.is-selected {
   border-color: var(--interactive-accent);
   box-shadow:
     inset 0 0 0 1px var(--interactive-accent),
-    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+    0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+
+.skillhub-card.is-selectable:hover,
+.skillhub-card.is-selectable:focus-visible,
+.skillhub-collection-row.is-selectable:hover,
+.skillhub-collection-row.is-selectable:focus-visible {
+  border-color: var(--interactive-accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 80%, transparent),
+    0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+  outline: none;
 }
 
 .skillhub-card p,
@@ -160,12 +176,6 @@ button.skillhub-toolbar-button:disabled {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-}
-
-.skillhub-card-select {
-  position: absolute;
-  top: 10px;
-  right: 10px;
 }
 
 .skillhub-chip {
@@ -324,10 +334,11 @@ button.skillhub-card-action-button:active {
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
-.skillhub-collection-select {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+.skillhub-collection-row.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow:
+    inset 0 0 0 1px var(--interactive-accent),
+    0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
 }
 
 .skillhub-collection-row.is-drop-target {

@@ -1619,6 +1619,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   renderCard(grid, skill) {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
+    if (this.selectMode) this.configureSelectableBlock(card, selected, () => this.toggleSkillSelection(skill.id));
     card.draggable = this.isCustomSort() || this.hasCollections();
     if (card.draggable) {
       card.addClass("is-draggable");
@@ -1642,14 +1643,6 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       }
     }
     if (skill.color) card.style.setProperty("--skillhub-card-color", skill.color);
-    if (this.selectMode) {
-      const checkbox = card.createEl("input", { type: "checkbox", cls: "skillhub-card-select" });
-      checkbox.checked = selected;
-      checkbox.addEventListener("change", () => {
-        checkbox.checked ? this.selectedSkillIds.add(skill.id) : this.selectedSkillIds.delete(skill.id);
-        this.render();
-      });
-    }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
     if (skill.originalName !== skill.nickname) card.createSpan({ cls: "skillhub-original-name", text: skill.originalName });
     const chips = card.createDiv({ cls: "skillhub-chips" });
@@ -1671,16 +1664,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   renderCollectionRow(board, collection) {
     const selected = this.selectedCollectionIds.has(collection.id);
-    const row = board.createDiv({ cls: "skillhub-collection-row" });
+    const row = board.createDiv({ cls: `skillhub-collection-row${selected ? " is-selected" : ""}` });
     if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
-    if (this.selectMode) {
-      const checkbox = row.createEl("input", { type: "checkbox", cls: "skillhub-collection-select" });
-      checkbox.checked = selected;
-      checkbox.addEventListener("change", () => {
-        checkbox.checked ? this.selectedCollectionIds.add(collection.id) : this.selectedCollectionIds.delete(collection.id);
-        this.render();
-      });
-    }
+    if (this.selectMode) this.configureSelectableBlock(row, selected, () => this.toggleCollectionSelection(collection.id));
     row.addEventListener("dragover", (event) => {
       event.preventDefault();
       row.addClass("is-drop-target");
@@ -1888,6 +1874,32 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   markCollectionDragHandled() {
     if (this.pendingCollectionDrag) this.pendingCollectionDrag.handled = true;
+  }
+  configureSelectableBlock(element, selected, onToggle) {
+    element.addClass("is-selectable");
+    element.setAttribute("role", "button");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("aria-pressed", selected ? "true" : "false");
+    element.addEventListener("click", (event) => {
+      if (this.isInteractiveSelectionTarget(event.target)) return;
+      onToggle();
+    });
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      onToggle();
+    });
+  }
+  isInteractiveSelectionTarget(target) {
+    return target instanceof HTMLElement && Boolean(target.closest("button, input, select, textarea, a"));
+  }
+  toggleSkillSelection(skillId) {
+    this.selectedSkillIds.has(skillId) ? this.selectedSkillIds.delete(skillId) : this.selectedSkillIds.add(skillId);
+    this.render();
+  }
+  toggleCollectionSelection(collectionId) {
+    this.selectedCollectionIds.has(collectionId) ? this.selectedCollectionIds.delete(collectionId) : this.selectedCollectionIds.add(collectionId);
+    this.render();
   }
   openBulkDelete() {
     const records = this.getSelectedSkills();
