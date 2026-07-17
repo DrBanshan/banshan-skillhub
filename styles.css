@@ -243,6 +243,10 @@
   background-color: var(--interactive-accent) !important;
 }
 
+.skillhub-install-button:hover {
+  background-color: var(--interactive-accent) !important;
+}
+
 .skillhub-edit-button:hover {
   background-color: var(--interactive-accent) !important;
 }
@@ -307,6 +311,7 @@
 }
 
 .skillhub-collection-row {
+  position: relative;
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
@@ -317,6 +322,12 @@
   background: color-mix(in srgb, var(--skillhub-collection-color, var(--background-secondary)) 14%, var(--background-secondary));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--skillhub-collection-color, transparent) 18%, transparent);
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.skillhub-collection-select {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 
 .skillhub-collection-row.is-drop-target {
@@ -439,6 +450,8 @@
 }
 
 .skillhub-selection-list,
+.skillhub-install-selection,
+.skillhub-install-selection-section,
 .skillhub-collections,
 .skillhub-emoji-candidates,
 .skillhub-edit-tags,

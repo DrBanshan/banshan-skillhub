@@ -159,6 +159,66 @@ export class SkillSelectionModal<T> extends Modal {
   }
 }
 
+export interface InstallSelectionValues {
+  skillIds: string[];
+  collectionIds: string[];
+}
+
+export class InstallSelectionModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly skills: SkillRecord[],
+    private readonly collections: SkillCollection[],
+    private readonly onSubmit: SubmitHandler<InstallSelectionValues>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Install skills and collections");
+    const skillIds = new Set<string>();
+    const collectionIds = new Set<string>();
+    const container = this.contentEl.createDiv({ cls: "skillhub-install-selection" });
+
+    const skillsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
+    skillsSection.createEl("h3", { text: "Skills" });
+    if (this.skills.length === 0) {
+      skillsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No skills installed yet." });
+    }
+    for (const skill of this.skills) {
+      const label = skillsSection.createEl("label", { cls: "skillhub-selection-item" });
+      const checkbox = label.createEl("input", { type: "checkbox" });
+      label.appendText(` ${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`);
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? skillIds.add(skill.id) : skillIds.delete(skill.id);
+      });
+    }
+
+    const collectionsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
+    collectionsSection.createEl("h3", { text: "Collections" });
+    if (this.collections.length === 0) {
+      collectionsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No collections created yet." });
+    }
+    for (const collection of this.collections) {
+      const label = collectionsSection.createEl("label", { cls: "skillhub-selection-item" });
+      const checkbox = label.createEl("input", { type: "checkbox" });
+      label.appendText(` ${collection.name} (${collection.skillIds.length})`);
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? collectionIds.add(collection.id) : collectionIds.delete(collection.id);
+      });
+    }
+
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Install").setCta().onClick(async () => {
+      await this.onSubmit({ skillIds: [...skillIds], collectionIds: [...collectionIds] });
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export interface SkillEditValues {
   nickname: string;
   emoji: string;

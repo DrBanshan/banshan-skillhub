@@ -118,4 +118,35 @@ describe("skill hub UI source", () => {
     expect(modalSource).toContain("skillhub-collection-edit-skill-remove");
     expect(modalSource).toContain("skillIds");
   });
+
+  it("installs individual skills and collections from action icons", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("type CardActionIcon = \"install\" | \"details\" | \"edit\" | \"delete\"");
+    expect(source).toContain("openInstallSelectionModal");
+    expect(source).toContain("installSkill(skill)");
+    expect(source).toContain("installCollection(collection)");
+    expect(source).toContain("this.addCardActionButton(actions, \"Install\", \"install\"");
+  });
+
+  it("includes collections in select mode and resolves selected collections for install", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("selectedCollectionIds");
+    expect(source).toContain("skillhub-collection-select");
+    expect(source).toContain("getSelectedInstallSkills");
+    expect(source).toContain("resolveInstallSkills");
+    expect(source).toContain("this.addToolbarButton(toolbar, \"Install\", \"download\", () => this.installSelectedSkills())");
+  });
+
+  it("offers an install picker when nothing is selected", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("InstallSelectionModal");
+    expect(source).toContain("openInstallSelectionModal");
+    expect(modalSource).toContain("InstallSelectionModal");
+    expect(modalSource).toContain("skillhub-install-selection");
+    expect(modalSource).toContain("collectionIds");
+  });
 });

@@ -11,17 +11,19 @@ import {
   CollectionManagerModal,
   DeleteConfirmationModal,
   GitHubUrlModal,
+  InstallSelectionModal,
   NpxCommandModal,
   SkillDetailModal,
   SkillEditModal
 } from "./modals";
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
-type CardActionIcon = "details" | "edit" | "delete";
+type CardActionIcon = "install" | "details" | "edit" | "delete";
 type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "done" | "download";
 
 export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
+  private readonly selectedCollectionIds = new Set<string>();
   private pendingCollectionDrag: { collectionId: string; skillId: string; handled: boolean } | undefined;
   private selectMode = false;
   private filterQuery = "";
@@ -55,12 +57,12 @@ export class SkillHubView extends ItemView {
   }
 
   installSelectedSkills(): void {
-    const selected = this.getSelectedSkills();
-    if (selected.length === 0) {
-      new Notice("Select at least one skill to install.");
+    const selected = this.getSelectedInstallSkills();
+    if (selected.length > 0) {
+      void this.plugin.installSkills(selected);
       return;
     }
-    void this.plugin.installSkills(selected);
+    this.openInstallSelectionModal();
   }
 
   render(): void {
@@ -77,11 +79,11 @@ export class SkillHubView extends ItemView {
       this.selectMode = !this.selectMode;
       this.render();
     });
-    this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills(), this.selectedSkillIds.size === 0);
+    this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills());
 
     if (this.selectMode) {
       const bulkToolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar skillhub-bulk-toolbar" });
-      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size} selected` });
+      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
       this.addButton(bulkToolbar, "Update collections", () => this.openBulkCollections(), this.selectedSkillIds.size === 0);
       this.addButton(bulkToolbar, "Delete selected", () => this.openBulkDelete(), this.selectedSkillIds.size === 0);
     }
@@ -171,6 +173,7 @@ export class SkillHubView extends ItemView {
     }
 
     const actions = card.createDiv({ cls: "skillhub-card-actions" });
+    this.addCardActionButton(actions, "Install", "install", () => this.installSkill(skill));
     this.addCardActionButton(actions, "Details", "details", () => this.openDetailModal(skill));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openEditModal(skill));
     this.addCardActionButton(actions, "Delete", "delete", () => this.openDeleteModal(skill));
@@ -186,8 +189,17 @@ export class SkillHubView extends ItemView {
   }
 
   private renderCollectionRow(board: HTMLElement, collection: SkillCollection): void {
+    const selected = this.selectedCollectionIds.has(collection.id);
     const row = board.createDiv({ cls: "skillhub-collection-row" });
     if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
+    if (this.selectMode) {
+      const checkbox = row.createEl("input", { type: "checkbox", cls: "skillhub-collection-select" });
+      checkbox.checked = selected;
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? this.selectedCollectionIds.add(collection.id) : this.selectedCollectionIds.delete(collection.id);
+        this.render();
+      });
+    }
 
     row.addEventListener("dragover", (event) => {
       event.preventDefault();
@@ -223,6 +235,7 @@ export class SkillHubView extends ItemView {
     }
 
     const actions = row.createDiv({ cls: "skillhub-collection-actions" });
+    this.addCardActionButton(actions, "Install", "install", () => this.installCollection(collection));
     this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
     this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
@@ -279,6 +292,19 @@ export class SkillHubView extends ItemView {
 
   private openDetailModal(skill: SkillRecord): void {
     new SkillDetailModal(this.app, skill, Object.values(this.plugin.registry.data.collections)).open();
+  }
+
+  private installSkill(skill: SkillRecord): void {
+    void this.plugin.installSkills([skill]);
+  }
+
+  private installCollection(collection: SkillCollection): void {
+    const skills = this.getCollectionSkills(collection);
+    if (skills.length === 0) {
+      new Notice("Collection has no skills to install.");
+      return;
+    }
+    void this.plugin.installSkills(skills);
   }
 
   private openEditModal(skill: SkillRecord): void {
@@ -438,6 +464,22 @@ export class SkillHubView extends ItemView {
     }).open();
   }
 
+  private openInstallSelectionModal(): void {
+    new InstallSelectionModal(
+      this.app,
+      Object.values(this.plugin.registry.data.skills),
+      Object.values(this.plugin.registry.data.collections),
+      async ({ skillIds, collectionIds }) => {
+        const records = this.resolveInstallSkills(skillIds, collectionIds);
+        if (records.length === 0) {
+          new Notice("Select at least one skill or collection to install.");
+          return;
+        }
+        await this.plugin.installSkills(records);
+      }
+    ).open();
+  }
+
   private openCollectionManager(): void {
     new CollectionManagerModal(this.app, () => Object.values(this.plugin.registry.data.collections), {
       create: async (values) => {
@@ -468,6 +510,25 @@ export class SkillHubView extends ItemView {
 
   private getSelectedSkills(): SkillRecord[] {
     return Object.values(this.plugin.registry.data.skills).filter((skill) => this.selectedSkillIds.has(skill.id));
+  }
+
+  private getSelectedInstallSkills(): SkillRecord[] {
+    return this.resolveInstallSkills([...this.selectedSkillIds], [...this.selectedCollectionIds]);
+  }
+
+  private resolveInstallSkills(skillIds: string[], collectionIds: string[]): SkillRecord[] {
+    const resolvedSkillIds = new Set<string>();
+    for (const skillId of skillIds) {
+      if (this.plugin.registry.data.skills[skillId]) resolvedSkillIds.add(skillId);
+    }
+    for (const collectionId of collectionIds) {
+      const collection = this.plugin.registry.data.collections[collectionId];
+      if (!collection) continue;
+      for (const skillId of collection.skillIds) {
+        if (this.plugin.registry.data.skills[skillId]) resolvedSkillIds.add(skillId);
+      }
+    }
+    return [...resolvedSkillIds].map((skillId) => this.plugin.registry.data.skills[skillId]);
   }
 
   private getVisibleSkills(): SkillRecord[] {
@@ -541,6 +602,9 @@ export class SkillHubView extends ItemView {
     for (const id of this.selectedSkillIds) {
       if (!this.plugin.registry.data.skills[id]) this.selectedSkillIds.delete(id);
     }
+    for (const id of this.selectedCollectionIds) {
+      if (!this.plugin.registry.data.collections[id]) this.selectedCollectionIds.delete(id);
+    }
   }
 
   private addSortOption(select: HTMLSelectElement, value: string, label: string): void {
@@ -565,7 +629,7 @@ export class SkillHubView extends ItemView {
   }
 
   private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void): void {
-    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : "skillhub-details-button";
+    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : icon === "install" ? "skillhub-install-button" : "skillhub-details-button";
     const button = container.createEl("button", {
       cls: `skillhub-card-action-button ${actionClass}`,
       attr: { "aria-label": label }
@@ -582,6 +646,13 @@ export class SkillHubView extends ItemView {
     svg.setAttribute("focusable", "false");
     svg.setAttribute("class", icon === "delete" ? "skillhub-action-svg bin" : "skillhub-action-svg");
     container.appendChild(svg);
+
+    if (icon === "install") {
+      this.appendSvgElement(svg, "path", { d: "M12 4v10" });
+      this.appendSvgElement(svg, "path", { d: "m7 10 5 5 5-5" });
+      this.appendSvgElement(svg, "path", { d: "M5 20h14" });
+      return;
+    }
 
     if (icon === "details") {
       this.appendSvgElement(svg, "circle", { cx: "12", cy: "12", r: "8.5" });

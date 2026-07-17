@@ -994,6 +994,53 @@ var SkillSelectionModal = class extends import_obsidian2.Modal {
     }
   }
 };
+var InstallSelectionModal = class extends import_obsidian2.Modal {
+  constructor(app, skills, collections, onSubmit) {
+    super(app);
+    this.skills = skills;
+    this.collections = collections;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    this.setTitle("Install skills and collections");
+    const skillIds = /* @__PURE__ */ new Set();
+    const collectionIds = /* @__PURE__ */ new Set();
+    const container = this.contentEl.createDiv({ cls: "skillhub-install-selection" });
+    const skillsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
+    skillsSection.createEl("h3", { text: "Skills" });
+    if (this.skills.length === 0) {
+      skillsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No skills installed yet." });
+    }
+    for (const skill of this.skills) {
+      const label = skillsSection.createEl("label", { cls: "skillhub-selection-item" });
+      const checkbox = label.createEl("input", { type: "checkbox" });
+      label.appendText(` ${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`);
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? skillIds.add(skill.id) : skillIds.delete(skill.id);
+      });
+    }
+    const collectionsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
+    collectionsSection.createEl("h3", { text: "Collections" });
+    if (this.collections.length === 0) {
+      collectionsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No collections created yet." });
+    }
+    for (const collection of this.collections) {
+      const label = collectionsSection.createEl("label", { cls: "skillhub-selection-item" });
+      const checkbox = label.createEl("input", { type: "checkbox" });
+      label.appendText(` ${collection.name} (${collection.skillIds.length})`);
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? collectionIds.add(collection.id) : collectionIds.delete(collection.id);
+      });
+    }
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Install").setCta().onClick(async () => {
+      await this.onSubmit({ skillIds: [...skillIds], collectionIds: [...collectionIds] });
+      this.close();
+    }));
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var SkillEditModal = class extends import_obsidian2.Modal {
   constructor(app, skill, collections, allTags, sharedTagColors, onSubmit) {
     super(app);
@@ -1379,6 +1426,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     super(leaf);
     this.plugin = plugin;
     this.selectedSkillIds = /* @__PURE__ */ new Set();
+    this.selectedCollectionIds = /* @__PURE__ */ new Set();
     this.selectMode = false;
     this.filterQuery = "";
   }
@@ -1401,12 +1449,12 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     new NpxCommandModal(this.app, (command) => this.plugin.importFromNpx(command)).open();
   }
   installSelectedSkills() {
-    const selected = this.getSelectedSkills();
-    if (selected.length === 0) {
-      new import_obsidian3.Notice("Select at least one skill to install.");
+    const selected = this.getSelectedInstallSkills();
+    if (selected.length > 0) {
+      void this.plugin.installSkills(selected);
       return;
     }
-    void this.plugin.installSkills(selected);
+    this.openInstallSelectionModal();
   }
   render() {
     this.removeMissingSelections();
@@ -1421,10 +1469,10 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       this.selectMode = !this.selectMode;
       this.render();
     });
-    this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills(), this.selectedSkillIds.size === 0);
+    this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills());
     if (this.selectMode) {
       const bulkToolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar skillhub-bulk-toolbar" });
-      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size} selected` });
+      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
       this.addButton(bulkToolbar, "Update collections", () => this.openBulkCollections(), this.selectedSkillIds.size === 0);
       this.addButton(bulkToolbar, "Delete selected", () => this.openBulkDelete(), this.selectedSkillIds.size === 0);
     }
@@ -1510,6 +1558,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
     }
     const actions = card.createDiv({ cls: "skillhub-card-actions" });
+    this.addCardActionButton(actions, "Install", "install", () => this.installSkill(skill));
     this.addCardActionButton(actions, "Details", "details", () => this.openDetailModal(skill));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openEditModal(skill));
     this.addCardActionButton(actions, "Delete", "delete", () => this.openDeleteModal(skill));
@@ -1521,8 +1570,17 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     for (const collection of collections) this.renderCollectionRow(board, collection);
   }
   renderCollectionRow(board, collection) {
+    const selected = this.selectedCollectionIds.has(collection.id);
     const row = board.createDiv({ cls: "skillhub-collection-row" });
     if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
+    if (this.selectMode) {
+      const checkbox = row.createEl("input", { type: "checkbox", cls: "skillhub-collection-select" });
+      checkbox.checked = selected;
+      checkbox.addEventListener("change", () => {
+        checkbox.checked ? this.selectedCollectionIds.add(collection.id) : this.selectedCollectionIds.delete(collection.id);
+        this.render();
+      });
+    }
     row.addEventListener("dragover", (event) => {
       event.preventDefault();
       row.addClass("is-drop-target");
@@ -1554,6 +1612,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
     }
     const actions = row.createDiv({ cls: "skillhub-collection-actions" });
+    this.addCardActionButton(actions, "Install", "install", () => this.installCollection(collection));
     this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
     this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
     this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
@@ -1609,6 +1668,17 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   openDetailModal(skill) {
     new SkillDetailModal(this.app, skill, Object.values(this.plugin.registry.data.collections)).open();
+  }
+  installSkill(skill) {
+    void this.plugin.installSkills([skill]);
+  }
+  installCollection(collection) {
+    const skills = this.getCollectionSkills(collection);
+    if (skills.length === 0) {
+      new import_obsidian3.Notice("Collection has no skills to install.");
+      return;
+    }
+    void this.plugin.installSkills(skills);
   }
   openEditModal(skill) {
     this.plugin.registry.data.tagColors = collectTagColors(this.plugin.registry.data);
@@ -1749,6 +1819,21 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       this.render();
     }).open();
   }
+  openInstallSelectionModal() {
+    new InstallSelectionModal(
+      this.app,
+      Object.values(this.plugin.registry.data.skills),
+      Object.values(this.plugin.registry.data.collections),
+      async ({ skillIds, collectionIds }) => {
+        const records = this.resolveInstallSkills(skillIds, collectionIds);
+        if (records.length === 0) {
+          new import_obsidian3.Notice("Select at least one skill or collection to install.");
+          return;
+        }
+        await this.plugin.installSkills(records);
+      }
+    ).open();
+  }
   openCollectionManager() {
     new CollectionManagerModal(this.app, () => Object.values(this.plugin.registry.data.collections), {
       create: async (values) => {
@@ -1778,6 +1863,23 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   getSelectedSkills() {
     return Object.values(this.plugin.registry.data.skills).filter((skill) => this.selectedSkillIds.has(skill.id));
+  }
+  getSelectedInstallSkills() {
+    return this.resolveInstallSkills([...this.selectedSkillIds], [...this.selectedCollectionIds]);
+  }
+  resolveInstallSkills(skillIds, collectionIds) {
+    const resolvedSkillIds = /* @__PURE__ */ new Set();
+    for (const skillId of skillIds) {
+      if (this.plugin.registry.data.skills[skillId]) resolvedSkillIds.add(skillId);
+    }
+    for (const collectionId of collectionIds) {
+      const collection = this.plugin.registry.data.collections[collectionId];
+      if (!collection) continue;
+      for (const skillId of collection.skillIds) {
+        if (this.plugin.registry.data.skills[skillId]) resolvedSkillIds.add(skillId);
+      }
+    }
+    return [...resolvedSkillIds].map((skillId) => this.plugin.registry.data.skills[skillId]);
   }
   getVisibleSkills() {
     const query = this.filterQuery.trim().toLocaleLowerCase();
@@ -1839,6 +1941,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     for (const id of this.selectedSkillIds) {
       if (!this.plugin.registry.data.skills[id]) this.selectedSkillIds.delete(id);
     }
+    for (const id of this.selectedCollectionIds) {
+      if (!this.plugin.registry.data.collections[id]) this.selectedCollectionIds.delete(id);
+    }
   }
   addSortOption(select, value, label) {
     select.createEl("option", { text: label, value });
@@ -1859,7 +1964,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     button.addEventListener("click", onClick);
   }
   addCardActionButton(container, label, icon, onClick) {
-    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : "skillhub-details-button";
+    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : icon === "install" ? "skillhub-install-button" : "skillhub-details-button";
     const button = container.createEl("button", {
       cls: `skillhub-card-action-button ${actionClass}`,
       attr: { "aria-label": label }
@@ -1875,6 +1980,12 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     svg.setAttribute("focusable", "false");
     svg.setAttribute("class", icon === "delete" ? "skillhub-action-svg bin" : "skillhub-action-svg");
     container.appendChild(svg);
+    if (icon === "install") {
+      this.appendSvgElement(svg, "path", { d: "M12 4v10" });
+      this.appendSvgElement(svg, "path", { d: "m7 10 5 5 5-5" });
+      this.appendSvgElement(svg, "path", { d: "M5 20h14" });
+      return;
+    }
     if (icon === "details") {
       this.appendSvgElement(svg, "circle", { cx: "12", cy: "12", r: "8.5" });
       this.appendSvgElement(svg, "path", { d: "M12 10.5v5.5" });
