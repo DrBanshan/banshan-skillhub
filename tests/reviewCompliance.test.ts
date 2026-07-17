@@ -21,6 +21,7 @@ describe("Obsidian review compliance", () => {
     expect(settingsSource).not.toContain("setControlValue");
     expect(settingsSource).not.toContain("Skill Hub settings");
     expect(settingsSource).not.toContain("createEl(\"h2\"");
+    expect(settingsSource).toContain("eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions");
     expect(modalSource).not.toContain(".setDestructive()");
     expect(modalSource).not.toContain(".setWarning()");
     expect(modalSource).toContain("setButtonWarning");
@@ -38,6 +39,7 @@ describe("Obsidian review compliance", () => {
     expect(importServiceSource).not.toContain("throw combineErrors(");
     expect(importServiceSource).not.toContain("throw toError(");
     expect(importServiceSource).not.toContain("throw cleanupCombinedError");
+    expect(importServiceSource).not.toContain("return Promise.reject(");
   });
 
   it("does not create DOM elements with native document APIs", async () => {

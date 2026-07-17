@@ -621,7 +621,7 @@ var SkillImportService = class {
           await (0, import_promises5.rm)(options.stagingPath, { force: true, recursive: true });
         } catch (cleanupError) {
           const cleanupCombinedError = operationError ? combineErrors(operationError, cleanupError, "staging cleanup failed") : combineErrors("Import completed", cleanupError, "staging cleanup failed");
-          return Promise.reject(cleanupCombinedError);
+          await Promise.reject(cleanupCombinedError);
         }
       }
     }

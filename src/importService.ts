@@ -137,7 +137,7 @@ export class SkillImportService {
           const cleanupCombinedError = operationError
             ? combineErrors(operationError, cleanupError, "staging cleanup failed")
             : combineErrors("Import completed", cleanupError, "staging cleanup failed");
-          return Promise.reject(cleanupCombinedError);
+          await Promise.reject(cleanupCombinedError);
         }
       }
     }

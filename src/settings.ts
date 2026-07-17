@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillHubSettings } from "./types";
 import { resolveVaultRelativePath } from "./vaultPaths";
 
+// eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions -- Declarative definitions require app 1.13.0; manifest stays at 1.12.7.
 export class SkillHubSettingTab extends PluginSettingTab {
   constructor(app: PluginSettingTab["app"], private readonly skillHubPlugin: SkillHubPlugin) {
     super(app, skillHubPlugin);
