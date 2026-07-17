@@ -1407,12 +1407,19 @@ var CollectionEditModal = class extends import_obsidian2.Modal {
         return;
       }
       for (const skill of visibleSkills) {
-        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill" });
-        row.createEl("span", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
+        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill-row" });
         const removeButton = row.createEl("button", {
+          cls: "skillhub-collection-edit-skill",
+          attr: { "aria-label": `Remove ${skill.nickname}` }
+        });
+        removeButton.createSpan({
+          cls: "skillhub-collection-edit-skill-label",
+          text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`
+        });
+        removeButton.createSpan({
           cls: "skillhub-collection-edit-skill-remove",
           text: "\xD7",
-          attr: { "aria-label": `Remove ${skill.nickname}` }
+          attr: { "aria-hidden": "true" }
         });
         removeButton.addEventListener("click", () => {
           skillIds = skillIds.filter((skillId) => skillId !== skill.id);

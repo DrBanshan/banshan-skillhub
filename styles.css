@@ -50,7 +50,7 @@ button.skillhub-toolbar-button {
   border: none;
   border-radius: 10px;
   background-color: var(--interactive-accent);
-  box-shadow: 5px 5px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);
+  box-shadow: none;
   color: white;
   cursor: pointer;
   font-size: var(--font-ui-small);
@@ -100,7 +100,7 @@ button.skillhub-toolbar-button:hover .skillhub-toolbar-icon {
 }
 
 button.skillhub-toolbar-button:active {
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);
+  box-shadow: none;
   transform: translate(3px, 3px);
   transition-duration: 0.3s;
 }
@@ -412,35 +412,57 @@ button.skillhub-collection-skill-block.is-drop-target {
   font-size: var(--font-ui-small);
 }
 
-.skillhub-collection-edit-skill {
+.skillhub-collection-edit-skill-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
+  justify-content: flex-start;
 }
 
-button.skillhub-collection-edit-skill-remove {
-  border: none;
-  background: transparent;
+button.skillhub-collection-edit-skill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--background-secondary);
   box-shadow: none;
-  color: var(--text-error);
+  color: var(--text-normal);
   cursor: pointer;
+  overflow: hidden;
+}
+
+.skillhub-collection-edit-skill-label,
+.skillhub-collection-edit-skill-remove {
+  transition: transform 160ms ease, opacity 160ms ease, color 160ms ease;
+}
+
+.skillhub-collection-edit-skill-remove {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
   opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-  transform: translateX(4px);
+  transform: translateX(100%);
 }
 
 .skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-remove,
 .skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-remove {
   opacity: 1;
-  pointer-events: auto;
   transform: translateX(0);
+}
+
+.skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-label,
+.skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-label {
+  color: transparent;
+  transform: translateX(-35%);
 }
 
 .skillhub-empty {

@@ -70,7 +70,9 @@ describe("skill card color styling", () => {
     expect(css).toContain("width: max-content;");
     expect(css).toContain("background-color: var(--interactive-accent);");
     expect(css).toContain("height: 40px;");
-    expect(css).toContain("box-shadow: 5px 5px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);");
+    expect(css).toContain("box-shadow: none;");
+    expect(css).not.toContain("box-shadow: 5px 5px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);");
+    expect(css).not.toContain("box-shadow: 2px 2px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);");
     expect(css).toContain(".skillhub-toolbar-button:hover");
     expect(css).toContain("color: transparent;");
     expect(css).toContain(".skillhub-toolbar-button:hover .skillhub-toolbar-icon");
@@ -112,5 +114,11 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-collection-edit-skill-remove");
     expect(css).toContain(".skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-remove");
     expect(css).toContain(".skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-remove");
+    expect(css).toContain("width: fit-content;");
+    expect(css).toContain(".skillhub-collection-edit-skill-label");
+    expect(css).toContain("inset: 0;");
+    expect(css).toContain("justify-content: center;");
+    expect(css).toContain(".skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-label");
+    expect(css).toContain("color: transparent;");
   });
 });
