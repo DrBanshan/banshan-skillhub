@@ -1,4 +1,4 @@
-import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
+import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { combineErrors } from "./errors";
@@ -14,8 +14,21 @@ import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import { discoverSkills, formatMissingSkillsFolderMessage, type DiscoveredSkill } from "./skillDiscovery";
 import type { SkillHubData, SkillRecord, SkillSource } from "./types";
 import { InstallResultModal, ManualNpxFallbackModal, SkillSelectionModal } from "./ui/modals";
-import { SkillHubView, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
+import { SkillHubView, SKILL_HUB_ICON_ID, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
 import { removeVaultRelativePath, resolveVaultRelativePath } from "./vaultPaths";
+
+const SKILL_HUB_ICON_SVG = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+  <path d="M12 6.8v3.4" />
+  <path d="M8.7 13.4 6 16" />
+  <path d="m15.3 13.4 2.7 2.6" />
+  <path d="M10.6 11.1 12 9.7l1.4 1.4L12 12.5l-1.4-1.4Z" />
+  <rect x="9.2" y="2.8" width="5.6" height="4" rx="1.2" />
+  <rect x="2.8" y="16.2" width="5.6" height="4" rx="1.2" />
+  <rect x="15.6" y="16.2" width="5.6" height="4" rx="1.2" />
+  <path d="M12 14.4v3.2" />
+  <path d="m10.6 18.4 1.4-1.4 1.4 1.4-1.4 1.4-1.4-1.4Z" />
+</svg>`;
 
 export default class SkillHubPlugin extends Plugin {
   data: SkillHubData = createEmptySkillHubData();
@@ -32,7 +45,8 @@ export default class SkillHubPlugin extends Plugin {
     };
     this.registry = new SkillRegistry(this.data);
 
-    this.addRibbonIcon("blocks", "Open Skill Hub", () => {
+    addIcon(SKILL_HUB_ICON_ID, SKILL_HUB_ICON_SVG);
+    this.addRibbonIcon(SKILL_HUB_ICON_ID, "Open Skill Hub", () => {
       void this.openSkillHub();
     });
     this.addCommand({ id: "open-skill-hub", name: "Open Skill Hub", callback: () => void this.openSkillHub() });

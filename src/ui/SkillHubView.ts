@@ -18,6 +18,7 @@ import {
 } from "./modals";
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
+export const SKILL_HUB_ICON_ID = "banshan-skillhub";
 type CardActionIcon = "install" | "details" | "edit" | "delete";
 type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "done" | "download";
 
@@ -38,6 +39,10 @@ export class SkillHubView extends ItemView {
 
   getDisplayText(): string {
     return "Skill Hub";
+  }
+
+  getIcon(): string {
+    return SKILL_HUB_ICON_ID;
   }
 
   async onOpen(): Promise<void> {

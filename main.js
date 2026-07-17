@@ -1421,6 +1421,7 @@ function formatSkillSource(skill) {
 // src/ui/SkillHubView.ts
 var import_obsidian3 = require("obsidian");
 var VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
+var SKILL_HUB_ICON_ID = "banshan-skillhub";
 var SkillHubView = class extends import_obsidian3.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -1435,6 +1436,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   getDisplayText() {
     return "Skill Hub";
+  }
+  getIcon() {
+    return SKILL_HUB_ICON_ID;
   }
   async onOpen() {
     this.render();
@@ -2053,6 +2057,18 @@ var SkillHubView = class extends import_obsidian3.ItemView {
 };
 
 // src/main.ts
+var SKILL_HUB_ICON_SVG = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+  <path d="M12 6.8v3.4" />
+  <path d="M8.7 13.4 6 16" />
+  <path d="m15.3 13.4 2.7 2.6" />
+  <path d="M10.6 11.1 12 9.7l1.4 1.4L12 12.5l-1.4-1.4Z" />
+  <rect x="9.2" y="2.8" width="5.6" height="4" rx="1.2" />
+  <rect x="2.8" y="16.2" width="5.6" height="4" rx="1.2" />
+  <rect x="15.6" y="16.2" width="5.6" height="4" rx="1.2" />
+  <path d="M12 14.4v3.2" />
+  <path d="m10.6 18.4 1.4-1.4 1.4 1.4-1.4 1.4-1.4-1.4Z" />
+</svg>`;
 var SkillHubPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
@@ -2070,7 +2086,8 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
       events: (_d = saved == null ? void 0 : saved.events) != null ? _d : []
     };
     this.registry = new SkillRegistry(this.data);
-    this.addRibbonIcon("blocks", "Open Skill Hub", () => {
+    (0, import_obsidian4.addIcon)(SKILL_HUB_ICON_ID, SKILL_HUB_ICON_SVG);
+    this.addRibbonIcon(SKILL_HUB_ICON_ID, "Open Skill Hub", () => {
       void this.openSkillHub();
     });
     this.addCommand({ id: "open-skill-hub", name: "Open Skill Hub", callback: () => void this.openSkillHub() });

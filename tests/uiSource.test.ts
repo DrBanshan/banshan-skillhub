@@ -149,4 +149,16 @@ describe("skill hub UI source", () => {
     expect(modalSource).toContain("skillhub-install-selection");
     expect(modalSource).toContain("collectionIds");
   });
+
+  it("registers a custom skill hub icon for the ribbon and tab", async () => {
+    const mainSource = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+    const viewSource = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+
+    expect(mainSource).toContain("addIcon");
+    expect(mainSource).toContain("SKILL_HUB_ICON_ID");
+    expect(mainSource).toContain("this.addRibbonIcon(SKILL_HUB_ICON_ID");
+    expect(mainSource).toContain("currentColor");
+    expect(viewSource).toContain("getIcon(): string");
+    expect(viewSource).toContain("return SKILL_HUB_ICON_ID");
+  });
 });
