@@ -851,6 +851,89 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, skillHubPlugin);
     this.skillHubPlugin = skillHubPlugin;
   }
+  getSettingDefinitions() {
+    return [{
+      type: "group",
+      heading: "Skill Hub",
+      items: [
+        {
+          name: "Skill folder",
+          desc: "Vault folder used to store imported skills.",
+          control: {
+            type: "folder",
+            key: "skillFolder",
+            defaultValue: DEFAULT_SETTINGS.skillFolder,
+            validate: (value) => this.validateSkillFolder(value)
+          }
+        },
+        {
+          name: "Install method",
+          desc: "How skills are installed into .agents/skills.",
+          control: {
+            type: "dropdown",
+            key: "installMethod",
+            defaultValue: DEFAULT_SETTINGS.installMethod,
+            options: { symlink: "Symlink", copy: "Copy" }
+          }
+        },
+        {
+          name: "Default sort",
+          desc: "Initial ordering in the Skill Hub view.",
+          control: {
+            type: "dropdown",
+            key: "defaultSort",
+            defaultValue: DEFAULT_SETTINGS.defaultSort,
+            options: {
+              nickname: "Nickname",
+              originalName: "Original name",
+              updatedAt: "Recently updated",
+              custom: "Custom order"
+            }
+          }
+        },
+        {
+          name: "Enable npx execution",
+          desc: "Allow Skill Hub to run npx skills add commands.",
+          control: {
+            type: "toggle",
+            key: "npxExecutionEnabled",
+            defaultValue: DEFAULT_SETTINGS.npxExecutionEnabled
+          }
+        },
+        {
+          name: "Symlink conflict behavior",
+          desc: "Choose what happens when a destination is already a symlink.",
+          control: {
+            type: "dropdown",
+            key: "defaultSymlinkConflictBehavior",
+            defaultValue: DEFAULT_SETTINGS.defaultSymlinkConflictBehavior,
+            options: { skip: "Skip", overwrite: "Overwrite symlinks" }
+          }
+        }
+      ]
+    }];
+  }
+  getControlValue(key) {
+    return this.skillHubPlugin.data.settings[key];
+  }
+  async setControlValue(key, value) {
+    if (key === "skillFolder") {
+      const nextValue = String(value).trim() || DEFAULT_SETTINGS.skillFolder;
+      const validationError = this.validateSkillFolder(nextValue);
+      if (validationError) throw new Error(validationError);
+      this.skillHubPlugin.data.settings.skillFolder = nextValue;
+    } else if (key === "installMethod" && this.isInstallMethod(value)) {
+      this.skillHubPlugin.data.settings.installMethod = value;
+    } else if (key === "defaultSort" && this.isDefaultSort(value)) {
+      this.skillHubPlugin.data.settings.defaultSort = value;
+      this.skillHubPlugin.refreshSkillHub();
+    } else if (key === "npxExecutionEnabled") {
+      this.skillHubPlugin.data.settings.npxExecutionEnabled = Boolean(value);
+    } else if (key === "defaultSymlinkConflictBehavior" && this.isSymlinkConflictBehavior(value)) {
+      this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
+    }
+    await this.skillHubPlugin.saveSkillHubData();
+  }
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -884,6 +967,22 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
       this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
       await this.skillHubPlugin.saveSkillHubData();
     }));
+  }
+  validateSkillFolder(value) {
+    try {
+      resolveVaultRelativePath("/vault", value.trim() || DEFAULT_SETTINGS.skillFolder);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+  isInstallMethod(value) {
+    return value === "symlink" || value === "copy";
+  }
+  isDefaultSort(value) {
+    return value === "nickname" || value === "originalName" || value === "updatedAt" || value === "custom";
+  }
+  isSymlinkConflictBehavior(value) {
+    return value === "skip" || value === "overwrite";
   }
 };
 
