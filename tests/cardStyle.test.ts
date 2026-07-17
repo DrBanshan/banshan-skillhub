@@ -37,12 +37,12 @@ describe("skill card color styling", () => {
 
     expect(css).toContain("button.skillhub-existing-tag");
     expect(css).toContain(".skillhub-edit-tag button.skillhub-edit-tag-button");
-    expect(css).toContain("background: var(--skillhub-tag-color) !important;");
-    expect(css).toContain("border-color: transparent !important;");
-    expect(css).toContain("box-shadow: none !important;");
+    expect(css).toContain("background: var(--skillhub-tag-color);");
+    expect(css).toContain("border-color: transparent;");
+    expect(css).toContain("box-shadow: none;");
     expect(css).toContain(".skillhub-edit-tag:hover button.skillhub-edit-tag-button");
     expect(css).toContain(".skillhub-edit-tag:focus-within button.skillhub-edit-tag-button");
-    expect(css).toContain("background: var(--background-secondary) !important;");
+    expect(css).toContain("background: var(--background-secondary);");
   });
 
   it("styles skill card actions as tooltip icon buttons", async () => {
@@ -52,11 +52,11 @@ describe("skill card color styling", () => {
     expect(css).toContain("width: 40px;");
     expect(css).toContain("height: 40px;");
     expect(css).toContain(".skillhub-details-button:hover");
-    expect(css).toContain("background-color: var(--interactive-accent) !important;");
+    expect(css).toContain("background-color: var(--interactive-accent);");
     expect(css).toContain(".skillhub-delete-button:hover");
-    expect(css).toContain("background-color: rgb(237, 56, 56) !important;");
+    expect(css).toContain("background-color: rgb(237, 56, 56);");
     expect(css).toContain(".skillhub-edit-button:hover");
-    expect(css).toContain("background-color: var(--interactive-accent) !important;");
+    expect(css).toContain("background-color: var(--interactive-accent);");
     expect(css).toContain(".skillhub-card-action-button:hover .skillhub-action-tooltip");
     expect(css).toContain(".skillhub-card-action-button:active");
     expect(css).toContain("transform: scale(0.98);");
@@ -68,11 +68,11 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-toolbar-button");
     expect(css).toContain("min-width: 132px;");
     expect(css).toContain("width: max-content;");
-    expect(css).toContain("background-color: var(--interactive-accent) !important;");
+    expect(css).toContain("background-color: var(--interactive-accent);");
     expect(css).toContain("height: 40px;");
     expect(css).toContain("box-shadow: 5px 5px 0 color-mix(in srgb, var(--interactive-accent) 70%, black);");
     expect(css).toContain(".skillhub-toolbar-button:hover");
-    expect(css).toContain("color: transparent !important;");
+    expect(css).toContain("color: transparent;");
     expect(css).toContain(".skillhub-toolbar-button:hover .skillhub-toolbar-icon");
     expect(css).toContain("width: 19.5px;");
     expect(css).toContain("left: 50%;");

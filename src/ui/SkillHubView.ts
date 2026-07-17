@@ -645,7 +645,7 @@ export class SkillHubView extends ItemView {
   }
 
   private createSvgIcon(container: HTMLElement, icon: CardActionIcon): void {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = createSvg("svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
@@ -680,13 +680,13 @@ export class SkillHubView extends ItemView {
   }
 
   private appendSvgElement(svg: SVGElement, tag: "circle" | "path", attrs: Record<string, string>): void {
-    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    const element = createSvg(tag);
     for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
     svg.appendChild(element);
   }
 
   private createToolbarIcon(container: HTMLElement, icon: ToolbarIcon): void {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = createSvg("svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");

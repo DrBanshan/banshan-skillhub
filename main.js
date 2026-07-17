@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -180,7 +190,10 @@ var SkillExportService = class {
 
 // src/folderPicker.ts
 var import_path3 = require("path");
-function extractNativeFolderPath(files, webUtils = getElectronWebUtils()) {
+function toError(error) {
+  return error instanceof Error ? error : new Error(String(error));
+}
+function extractNativeFolderPath(files, webUtils) {
   if (files.length === 0) {
     throw new Error("Native folder selection cannot select an empty directory because the folder picker did not provide a file. Select a non-empty directory.");
   }
@@ -205,15 +218,17 @@ function extractNativeFolderPath(files, webUtils = getElectronWebUtils()) {
   if (relativeSegments.length < 2) return (0, import_path3.dirname)(selectedPath);
   return (0, import_path3.resolve)(selectedPath, ...Array(relativeSegments.length - 1).fill(".."));
 }
-function getElectronWebUtils() {
+async function getElectronWebUtils() {
   try {
-    return require("electron").webUtils;
+    const electron = await import("electron");
+    return electron.webUtils;
   } catch (e) {
     return void 0;
   }
 }
 async function pickNativeFolder() {
-  const input = document.createElement("input");
+  const webUtils = await getElectronWebUtils();
+  const input = createEl("input", { type: "file" });
   input.type = "file";
   input.multiple = true;
   input.hidden = true;
@@ -225,9 +240,9 @@ async function pickNativeFolder() {
       settled = true;
       input.remove();
       try {
-        resolveSelection(files ? extractNativeFolderPath(files) : void 0);
+        resolveSelection(files ? extractNativeFolderPath(files, webUtils) : void 0);
       } catch (error) {
-        rejectSelection(error);
+        rejectSelection(toError(error));
       }
     };
     input.addEventListener("change", () => finish(input.files), { once: true });
@@ -238,7 +253,7 @@ async function pickNativeFolder() {
     } catch (error) {
       settled = true;
       input.remove();
-      rejectSelection(error);
+      rejectSelection(toError(error));
     }
   });
 }
@@ -500,6 +515,9 @@ function isWithinPath(path, root) {
 // src/importService.ts
 var import_promises5 = require("fs/promises");
 var import_path6 = require("path");
+function toError2(error) {
+  return error instanceof Error ? error : new Error(String(error));
+}
 async function createCollisionSafeFolderName(baseName, exists) {
   if (!await exists(baseName)) return baseName;
   let suffix = 2;
@@ -593,7 +611,7 @@ var SkillImportService = class {
           }
         }
       }
-      throw operationError;
+      throw toError2(operationError);
     } finally {
       if (options.stagingPath) {
         try {
@@ -830,10 +848,96 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, skillHubPlugin);
     this.skillHubPlugin = skillHubPlugin;
   }
+  getSettingDefinitions() {
+    return [{
+      type: "group",
+      heading: "Skill Hub settings",
+      items: [
+        {
+          name: "Skill folder",
+          desc: "Vault folder used to store imported skills.",
+          control: {
+            type: "text",
+            key: "skillFolder",
+            defaultValue: DEFAULT_SETTINGS.skillFolder,
+            validate: (value) => {
+              try {
+                resolveVaultRelativePath("/vault", value.trim() || DEFAULT_SETTINGS.skillFolder);
+              } catch (error) {
+                return error instanceof Error ? error.message : String(error);
+              }
+            }
+          }
+        },
+        {
+          name: "Install method",
+          desc: "How skills are installed into .agents/skills.",
+          control: {
+            type: "dropdown",
+            key: "installMethod",
+            defaultValue: DEFAULT_SETTINGS.installMethod,
+            options: { symlink: "Symlink", copy: "Copy" }
+          }
+        },
+        {
+          name: "Default sort",
+          desc: "Initial ordering in the Skill Hub view.",
+          control: {
+            type: "dropdown",
+            key: "defaultSort",
+            defaultValue: DEFAULT_SETTINGS.defaultSort,
+            options: {
+              nickname: "Nickname",
+              originalName: "Original name",
+              updatedAt: "Recently updated",
+              custom: "Custom order"
+            }
+          }
+        },
+        {
+          name: "Enable npx execution",
+          desc: "Allow Skill Hub to run npx skills add commands.",
+          control: {
+            type: "toggle",
+            key: "npxExecutionEnabled",
+            defaultValue: DEFAULT_SETTINGS.npxExecutionEnabled
+          }
+        },
+        {
+          name: "Symlink conflict behavior",
+          desc: "Choose what happens when a destination is already a symlink.",
+          control: {
+            type: "dropdown",
+            key: "defaultSymlinkConflictBehavior",
+            defaultValue: DEFAULT_SETTINGS.defaultSymlinkConflictBehavior,
+            options: { skip: "Skip", overwrite: "Overwrite symlinks" }
+          }
+        }
+      ]
+    }];
+  }
+  getControlValue(key) {
+    return this.skillHubPlugin.data.settings[key];
+  }
+  async setControlValue(key, value) {
+    if (key === "skillFolder") {
+      this.skillHubPlugin.data.settings.skillFolder = String(value).trim() || DEFAULT_SETTINGS.skillFolder;
+    } else if (key === "installMethod" && (value === "symlink" || value === "copy")) {
+      this.skillHubPlugin.data.settings.installMethod = value;
+    } else if (key === "defaultSort" && (value === "nickname" || value === "originalName" || value === "updatedAt" || value === "custom")) {
+      this.skillHubPlugin.data.settings.defaultSort = value;
+      this.skillHubPlugin.refreshSkillHub();
+    } else if (key === "npxExecutionEnabled") {
+      this.skillHubPlugin.data.settings.npxExecutionEnabled = Boolean(value);
+    } else if (key === "defaultSymlinkConflictBehavior" && (value === "skip" || value === "overwrite")) {
+      this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
+    }
+    await this.skillHubPlugin.saveSkillHubData();
+  }
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Skill Hub settings" });
+    new import_obsidian.Setting(containerEl).setName("Skill Hub settings").setHeading();
     const skillFolderSetting = new import_obsidian.Setting(containerEl).setName("Skill folder").setDesc("Vault folder used to store imported skills.").addText((text) => text.setValue(this.skillHubPlugin.data.settings.skillFolder).onChange(async (value) => {
       const nextValue = value.trim() || DEFAULT_SETTINGS.skillFolder;
       try {
@@ -1190,7 +1294,7 @@ var DeleteConfirmationModal = class extends import_obsidian2.Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skill.nickname}? Copied vault folder "${this.skill.vaultPath}" and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
       await this.onConfirm();
       this.close();
     }));
@@ -1210,7 +1314,7 @@ var BulkDeleteConfirmationModal = class extends import_obsidian2.Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skills.length} selected skills? Copied vault folders ${this.skills.map((skill) => `"${skill.vaultPath}"`).join(", ")} and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setWarning().onClick(async () => {
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setDestructive().onClick(async () => {
       await this.onConfirm(void 0);
       this.close();
     }));
@@ -1359,7 +1463,7 @@ var CollectionManagerModal = class extends import_obsidian2.Modal {
           await this.actions.update(collection, values);
           this.renderCollections();
         }).open();
-      })).addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
+      })).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
         await this.actions.delete(collection);
         this.renderCollections();
       }));
@@ -1978,7 +2082,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     button.addEventListener("click", onClick);
   }
   createSvgIcon(container, icon) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = createSvg("svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
@@ -2008,12 +2112,12 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.appendSvgElement(svg, "path", { d: "M13.5 11v5" });
   }
   appendSvgElement(svg, tag, attrs) {
-    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    const element = createSvg(tag);
     for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
     svg.appendChild(element);
   }
   createToolbarIcon(container, icon) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = createSvg("svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
@@ -2104,7 +2208,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     var _a;
     const leaf = (_a = this.app.workspace.getLeavesOfType(VIEW_TYPE_SKILL_HUB)[0]) != null ? _a : this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW_TYPE_SKILL_HUB, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
     return leaf.view;
   }
   async openGitHubImport() {

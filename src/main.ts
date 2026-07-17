@@ -64,7 +64,7 @@ export default class SkillHubPlugin extends Plugin {
   async openSkillHub(): Promise<SkillHubView> {
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_SKILL_HUB)[0] ?? this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW_TYPE_SKILL_HUB, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
     return leaf.view as SkillHubView;
   }
 

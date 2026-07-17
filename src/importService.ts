@@ -19,6 +19,10 @@ export interface ImportResult {
   imported: SkillRecord[];
 }
 
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export async function createCollisionSafeFolderName(
   baseName: string,
   exists: (folderName: string) => Promise<boolean>
@@ -123,7 +127,7 @@ export class SkillImportService {
         }
       }
 
-      throw operationError;
+      throw toError(operationError);
     } finally {
       if (options.stagingPath) {
         try {

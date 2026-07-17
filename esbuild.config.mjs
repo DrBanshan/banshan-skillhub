@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
 import { copyFile, mkdir } from "fs/promises";
 
 const prod = process.argv[2] === "production";
@@ -32,7 +32,7 @@ await copyPluginFiles();
 const context = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", ...builtins],
+  external: ["obsidian", "electron", ...builtinModules, ...builtinModules.map((moduleName) => `node:${moduleName}`)],
   format: "cjs",
   target: "es2018",
   logLevel: "info",

@@ -386,7 +386,7 @@ export class DeleteConfirmationModal extends Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skill.nickname}? Copied vault folder "${this.skill.vaultPath}" and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
       await this.onConfirm();
       this.close();
     }));
@@ -407,7 +407,7 @@ export class BulkDeleteConfirmationModal extends Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skills.length} selected skills? Copied vault folders ${this.skills.map((skill) => `"${skill.vaultPath}"`).join(", ")} and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setWarning().onClick(async () => {
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setDestructive().onClick(async () => {
       await this.onConfirm(undefined);
       this.close();
     }));
@@ -586,7 +586,7 @@ export class CollectionManagerModal extends Modal {
             this.renderCollections();
           }).open();
         }))
-        .addButton((button) => button.setButtonText("Delete").setWarning().onClick(async () => {
+        .addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
           await this.actions.delete(collection);
           this.renderCollections();
         }));

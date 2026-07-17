@@ -1,7 +1,7 @@
 {
   "name": "banshan-skillhub",
   "version": "0.1.0",
-  "description": "Obsidian Skill Hub plugin for importing, organizing, and installing local AI agent skills.",
+  "description": "Skill Hub plugin for importing, organizing, and installing local AI agent skills.",
   "main": "main.js",
   "scripts": {
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
@@ -18,7 +18,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "builtin-modules": "^3.3.0",
     "esbuild": "^0.23.0",
     "obsidian": "^1.6.7",
     "tslib": "^2.6.3",

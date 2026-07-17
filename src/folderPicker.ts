@@ -8,7 +8,11 @@ interface ElectronModule {
   webUtils?: ElectronWebUtils;
 }
 
-export function extractNativeFolderPath(files: ArrayLike<File>, webUtils: ElectronWebUtils | undefined = getElectronWebUtils()): string {
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+export function extractNativeFolderPath(files: ArrayLike<File>, webUtils?: ElectronWebUtils): string {
   if (files.length === 0) {
     throw new Error("Native folder selection cannot select an empty directory because the folder picker did not provide a file. Select a non-empty directory.");
   }
@@ -37,16 +41,18 @@ export function extractNativeFolderPath(files: ArrayLike<File>, webUtils: Electr
   return resolve(selectedPath, ...Array(relativeSegments.length - 1).fill(".."));
 }
 
-function getElectronWebUtils(): ElectronWebUtils | undefined {
+async function getElectronWebUtils(): Promise<ElectronWebUtils | undefined> {
   try {
-    return (require("electron") as ElectronModule).webUtils;
+    const electron = await import("electron") as ElectronModule;
+    return electron.webUtils;
   } catch {
     return undefined;
   }
 }
 
 export async function pickNativeFolder(): Promise<string | undefined> {
-  const input = document.createElement("input");
+  const webUtils = await getElectronWebUtils();
+  const input = createEl("input", { type: "file" });
   input.type = "file";
   input.multiple = true;
   input.hidden = true;
@@ -59,9 +65,9 @@ export async function pickNativeFolder(): Promise<string | undefined> {
       settled = true;
       input.remove();
       try {
-        resolveSelection(files ? extractNativeFolderPath(files) : undefined);
+        resolveSelection(files ? extractNativeFolderPath(files, webUtils) : undefined);
       } catch (error) {
-        rejectSelection(error);
+        rejectSelection(toError(error));
       }
     };
 
@@ -73,7 +79,7 @@ export async function pickNativeFolder(): Promise<string | undefined> {
     } catch (error) {
       settled = true;
       input.remove();
-      rejectSelection(error);
+      rejectSelection(toError(error));
     }
   });
 }
