@@ -1,4 +1,4 @@
-import { PluginSettingTab, Setting, type SettingDefinitionItem } from "obsidian";
+import { PluginSettingTab, Setting } from "obsidian";
 import type SkillHubPlugin from "./main";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillHubSettings } from "./types";
@@ -9,99 +9,10 @@ export class SkillHubSettingTab extends PluginSettingTab {
     super(app, skillHubPlugin);
   }
 
-  getSettingDefinitions(): SettingDefinitionItem<keyof SkillHubSettings & string>[] {
-    return [{
-      type: "group",
-      heading: "Skill Hub settings",
-      items: [
-        {
-          name: "Skill folder",
-          desc: "Vault folder used to store imported skills.",
-          control: {
-            type: "text",
-            key: "skillFolder",
-            defaultValue: DEFAULT_SETTINGS.skillFolder,
-            validate: (value) => {
-              try {
-                resolveVaultRelativePath("/vault", value.trim() || DEFAULT_SETTINGS.skillFolder);
-              } catch (error) {
-                return error instanceof Error ? error.message : String(error);
-              }
-            }
-          }
-        },
-        {
-          name: "Install method",
-          desc: "How skills are installed into .agents/skills.",
-          control: {
-            type: "dropdown",
-            key: "installMethod",
-            defaultValue: DEFAULT_SETTINGS.installMethod,
-            options: { symlink: "Symlink", copy: "Copy" }
-          }
-        },
-        {
-          name: "Default sort",
-          desc: "Initial ordering in the Skill Hub view.",
-          control: {
-            type: "dropdown",
-            key: "defaultSort",
-            defaultValue: DEFAULT_SETTINGS.defaultSort,
-            options: {
-              nickname: "Nickname",
-              originalName: "Original name",
-              updatedAt: "Recently updated",
-              custom: "Custom order"
-            }
-          }
-        },
-        {
-          name: "Enable npx execution",
-          desc: "Allow Skill Hub to run npx skills add commands.",
-          control: {
-            type: "toggle",
-            key: "npxExecutionEnabled",
-            defaultValue: DEFAULT_SETTINGS.npxExecutionEnabled
-          }
-        },
-        {
-          name: "Symlink conflict behavior",
-          desc: "Choose what happens when a destination is already a symlink.",
-          control: {
-            type: "dropdown",
-            key: "defaultSymlinkConflictBehavior",
-            defaultValue: DEFAULT_SETTINGS.defaultSymlinkConflictBehavior,
-            options: { skip: "Skip", overwrite: "Overwrite symlinks" }
-          }
-        }
-      ]
-    }];
-  }
-
-  getControlValue(key: keyof SkillHubSettings & string): unknown {
-    return this.skillHubPlugin.data.settings[key];
-  }
-
-  async setControlValue(key: keyof SkillHubSettings & string, value: unknown): Promise<void> {
-    if (key === "skillFolder") {
-      this.skillHubPlugin.data.settings.skillFolder = String(value).trim() || DEFAULT_SETTINGS.skillFolder;
-    } else if (key === "installMethod" && (value === "symlink" || value === "copy")) {
-      this.skillHubPlugin.data.settings.installMethod = value;
-    } else if (key === "defaultSort" && (value === "nickname" || value === "originalName" || value === "updatedAt" || value === "custom")) {
-      this.skillHubPlugin.data.settings.defaultSort = value;
-      this.skillHubPlugin.refreshSkillHub();
-    } else if (key === "npxExecutionEnabled") {
-      this.skillHubPlugin.data.settings.npxExecutionEnabled = Boolean(value);
-    } else if (key === "defaultSymlinkConflictBehavior" && (value === "skip" || value === "overwrite")) {
-      this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
-    }
-    await this.skillHubPlugin.saveSkillHubData();
-  }
-
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("Skill Hub settings").setHeading();
+    new Setting(containerEl).setName("Skill Hub").setHeading();
 
     const skillFolderSetting = new Setting(containerEl)
       .setName("Skill folder")

@@ -38,7 +38,9 @@ export function extractNativeFolderPath(files: ArrayLike<File>, webUtils?: Elect
 
   const relativeSegments = selectedFile.webkitRelativePath.split("/").filter(Boolean);
   if (relativeSegments.length < 2) return dirname(selectedPath);
-  return resolve(selectedPath, ...Array(relativeSegments.length - 1).fill(".."));
+  const parentSegments: string[] = [];
+  for (let index = 1; index < relativeSegments.length; index += 1) parentSegments.push("..");
+  return resolve(selectedPath, ...parentSegments);
 }
 
 async function getElectronWebUtils(): Promise<ElectronWebUtils | undefined> {

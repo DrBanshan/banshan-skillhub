@@ -127,14 +127,17 @@ export class SkillImportService {
         }
       }
 
-      throw toError(operationError);
+      const importError = toError(operationError);
+      throw importError;
     } finally {
       if (options.stagingPath) {
         try {
           await rm(options.stagingPath, { force: true, recursive: true });
         } catch (cleanupError) {
-          if (operationError) throw combineErrors(operationError, cleanupError, "staging cleanup failed");
-          throw combineErrors("Import completed", cleanupError, "staging cleanup failed");
+          const cleanupCombinedError = operationError
+            ? combineErrors(operationError, cleanupError, "staging cleanup failed")
+            : combineErrors("Import completed", cleanupError, "staging cleanup failed");
+          throw cleanupCombinedError;
         }
       }
     }

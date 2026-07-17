@@ -1,4 +1,4 @@
-import { Modal, Notice, Setting } from "obsidian";
+import { Modal, Notice, Setting, type ButtonComponent } from "obsidian";
 import type { InstallSummary } from "../exportService";
 import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
@@ -6,6 +6,10 @@ import type { SkillCollection, SkillRecord } from "../types";
 type SubmitHandler<T> = (value: T) => void | Promise<void>;
 const SKILL_EMOJI_CANDIDATES = ["🧠", "🛠️", "✍️", "🔍", "📚", "🧪", "⚙️", "🚀", "💡", "📊", "🤖", "🧭"];
 const DEFAULT_TAG_COLOR = "#7f8c8d";
+
+function setButtonWarning(button: ButtonComponent): ButtonComponent {
+  return button.setClass("mod-warning");
+}
 
 export class TextInputModal extends Modal {
   private value = "";
@@ -386,7 +390,7 @@ export class DeleteConfirmationModal extends Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skill.nickname}? Copied vault folder "${this.skill.vaultPath}" and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
+    new Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
       await this.onConfirm();
       this.close();
     }));
@@ -407,7 +411,7 @@ export class BulkDeleteConfirmationModal extends Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skills.length} selected skills? Copied vault folders ${this.skills.map((skill) => `"${skill.vaultPath}"`).join(", ")} and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setDestructive().onClick(async () => {
+    new Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete all")).onClick(async () => {
       await this.onConfirm(undefined);
       this.close();
     }));
@@ -593,7 +597,7 @@ export class CollectionManagerModal extends Modal {
             this.renderCollections();
           }).open();
         }))
-        .addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
+        .addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
           await this.actions.delete(collection);
           this.renderCollections();
         }));

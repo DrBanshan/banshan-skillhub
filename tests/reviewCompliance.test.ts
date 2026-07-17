@@ -10,15 +10,20 @@ describe("Obsidian review compliance", () => {
     expect(packageJson).not.toContain("\"builtin-modules\"");
   });
 
-  it("uses current Obsidian settings and destructive button APIs", async () => {
+  it("uses Obsidian 1.12.7-compatible settings and destructive button APIs", async () => {
     const settingsSource = await readFile(new URL("../src/settings.ts", import.meta.url), "utf8");
     const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 
     expect(settingsSource).toContain(".setHeading()");
-    expect(settingsSource).toContain("getSettingDefinitions()");
+    expect(settingsSource).not.toContain("SettingDefinitionItem");
+    expect(settingsSource).not.toContain("getSettingDefinitions");
+    expect(settingsSource).not.toContain("getControlValue");
+    expect(settingsSource).not.toContain("setControlValue");
+    expect(settingsSource).not.toContain("Skill Hub settings");
     expect(settingsSource).not.toContain("createEl(\"h2\"");
+    expect(modalSource).not.toContain(".setDestructive()");
     expect(modalSource).not.toContain(".setWarning()");
-    expect(modalSource).toContain(".setDestructive()");
+    expect(modalSource).toContain("setButtonWarning");
   });
 
   it("avoids unsafe folder picker and throw patterns", async () => {
@@ -27,8 +32,19 @@ describe("Obsidian review compliance", () => {
 
     expect(folderPickerSource).not.toContain("require(");
     expect(folderPickerSource).not.toContain("document.createElement");
+    expect(folderPickerSource).not.toContain("Array(relativeSegments.length - 1).fill");
     expect(folderPickerSource).not.toContain("rejectSelection(error)");
     expect(importServiceSource).not.toContain("throw operationError");
+    expect(importServiceSource).not.toContain("throw combineErrors(");
+    expect(importServiceSource).not.toContain("throw toError(");
+  });
+
+  it("does not create DOM elements with native document APIs", async () => {
+    const skillHubViewSource = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(skillHubViewSource).not.toMatch(/document\.createElement(?:NS)?/);
+    expect(modalSource).not.toMatch(/document\.createElement(?:NS)?/);
   });
 
   it("does not use CSS important overrides", async () => {

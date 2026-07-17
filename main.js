@@ -216,7 +216,9 @@ function extractNativeFolderPath(files, webUtils) {
   }
   const relativeSegments = selectedFile.webkitRelativePath.split("/").filter(Boolean);
   if (relativeSegments.length < 2) return (0, import_path3.dirname)(selectedPath);
-  return (0, import_path3.resolve)(selectedPath, ...Array(relativeSegments.length - 1).fill(".."));
+  const parentSegments = [];
+  for (let index = 1; index < relativeSegments.length; index += 1) parentSegments.push("..");
+  return (0, import_path3.resolve)(selectedPath, ...parentSegments);
 }
 async function getElectronWebUtils() {
   try {
@@ -611,14 +613,15 @@ var SkillImportService = class {
           }
         }
       }
-      throw toError2(operationError);
+      const importError = toError2(operationError);
+      throw importError;
     } finally {
       if (options.stagingPath) {
         try {
           await (0, import_promises5.rm)(options.stagingPath, { force: true, recursive: true });
         } catch (cleanupError) {
-          if (operationError) throw combineErrors(operationError, cleanupError, "staging cleanup failed");
-          throw combineErrors("Import completed", cleanupError, "staging cleanup failed");
+          const cleanupCombinedError = operationError ? combineErrors(operationError, cleanupError, "staging cleanup failed") : combineErrors("Import completed", cleanupError, "staging cleanup failed");
+          throw cleanupCombinedError;
         }
       }
     }
@@ -848,96 +851,10 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, skillHubPlugin);
     this.skillHubPlugin = skillHubPlugin;
   }
-  getSettingDefinitions() {
-    return [{
-      type: "group",
-      heading: "Skill Hub settings",
-      items: [
-        {
-          name: "Skill folder",
-          desc: "Vault folder used to store imported skills.",
-          control: {
-            type: "text",
-            key: "skillFolder",
-            defaultValue: DEFAULT_SETTINGS.skillFolder,
-            validate: (value) => {
-              try {
-                resolveVaultRelativePath("/vault", value.trim() || DEFAULT_SETTINGS.skillFolder);
-              } catch (error) {
-                return error instanceof Error ? error.message : String(error);
-              }
-            }
-          }
-        },
-        {
-          name: "Install method",
-          desc: "How skills are installed into .agents/skills.",
-          control: {
-            type: "dropdown",
-            key: "installMethod",
-            defaultValue: DEFAULT_SETTINGS.installMethod,
-            options: { symlink: "Symlink", copy: "Copy" }
-          }
-        },
-        {
-          name: "Default sort",
-          desc: "Initial ordering in the Skill Hub view.",
-          control: {
-            type: "dropdown",
-            key: "defaultSort",
-            defaultValue: DEFAULT_SETTINGS.defaultSort,
-            options: {
-              nickname: "Nickname",
-              originalName: "Original name",
-              updatedAt: "Recently updated",
-              custom: "Custom order"
-            }
-          }
-        },
-        {
-          name: "Enable npx execution",
-          desc: "Allow Skill Hub to run npx skills add commands.",
-          control: {
-            type: "toggle",
-            key: "npxExecutionEnabled",
-            defaultValue: DEFAULT_SETTINGS.npxExecutionEnabled
-          }
-        },
-        {
-          name: "Symlink conflict behavior",
-          desc: "Choose what happens when a destination is already a symlink.",
-          control: {
-            type: "dropdown",
-            key: "defaultSymlinkConflictBehavior",
-            defaultValue: DEFAULT_SETTINGS.defaultSymlinkConflictBehavior,
-            options: { skip: "Skip", overwrite: "Overwrite symlinks" }
-          }
-        }
-      ]
-    }];
-  }
-  getControlValue(key) {
-    return this.skillHubPlugin.data.settings[key];
-  }
-  async setControlValue(key, value) {
-    if (key === "skillFolder") {
-      this.skillHubPlugin.data.settings.skillFolder = String(value).trim() || DEFAULT_SETTINGS.skillFolder;
-    } else if (key === "installMethod" && (value === "symlink" || value === "copy")) {
-      this.skillHubPlugin.data.settings.installMethod = value;
-    } else if (key === "defaultSort" && (value === "nickname" || value === "originalName" || value === "updatedAt" || value === "custom")) {
-      this.skillHubPlugin.data.settings.defaultSort = value;
-      this.skillHubPlugin.refreshSkillHub();
-    } else if (key === "npxExecutionEnabled") {
-      this.skillHubPlugin.data.settings.npxExecutionEnabled = Boolean(value);
-    } else if (key === "defaultSymlinkConflictBehavior" && (value === "skip" || value === "overwrite")) {
-      this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
-    }
-    await this.skillHubPlugin.saveSkillHubData();
-  }
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Skill Hub settings").setHeading();
+    new import_obsidian.Setting(containerEl).setName("Skill Hub").setHeading();
     const skillFolderSetting = new import_obsidian.Setting(containerEl).setName("Skill folder").setDesc("Vault folder used to store imported skills.").addText((text) => text.setValue(this.skillHubPlugin.data.settings.skillFolder).onChange(async (value) => {
       const nextValue = value.trim() || DEFAULT_SETTINGS.skillFolder;
       try {
@@ -985,6 +902,9 @@ function createCleanupOnce(cleanup) {
 // src/ui/modals.ts
 var SKILL_EMOJI_CANDIDATES = ["\u{1F9E0}", "\u{1F6E0}\uFE0F", "\u270D\uFE0F", "\u{1F50D}", "\u{1F4DA}", "\u{1F9EA}", "\u2699\uFE0F", "\u{1F680}", "\u{1F4A1}", "\u{1F4CA}", "\u{1F916}", "\u{1F9ED}"];
 var DEFAULT_TAG_COLOR = "#7f8c8d";
+function setButtonWarning(button) {
+  return button.setClass("mod-warning");
+}
 var TextInputModal = class extends import_obsidian2.Modal {
   constructor(app, title, placeholder, submitText, onSubmit) {
     super(app);
@@ -1294,7 +1214,7 @@ var DeleteConfirmationModal = class extends import_obsidian2.Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skill.nickname}? Copied vault folder "${this.skill.vaultPath}" and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
       await this.onConfirm();
       this.close();
     }));
@@ -1314,7 +1234,7 @@ var BulkDeleteConfirmationModal = class extends import_obsidian2.Modal {
     this.contentEl.createEl("p", {
       text: `Delete ${this.skills.length} selected skills? Copied vault folders ${this.skills.map((skill) => `"${skill.vaultPath}"`).join(", ")} and Skill Hub plugin metadata will be permanently deleted.`
     });
-    new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Delete all").setDestructive().onClick(async () => {
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete all")).onClick(async () => {
       await this.onConfirm(void 0);
       this.close();
     }));
@@ -1470,7 +1390,7 @@ var CollectionManagerModal = class extends import_obsidian2.Modal {
           await this.actions.update(collection, values);
           this.renderCollections();
         }).open();
-      })).addButton((button) => button.setButtonText("Delete").setDestructive().onClick(async () => {
+      })).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
         await this.actions.delete(collection);
         this.renderCollections();
       }));
