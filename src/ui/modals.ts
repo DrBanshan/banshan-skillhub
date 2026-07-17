@@ -187,7 +187,7 @@ export class InstallSelectionModal extends Modal {
     const skillsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
     skillsSection.createEl("h3", { text: "Skills" });
     if (this.skills.length === 0) {
-      skillsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No skills installed yet." });
+      skillsSection.createSpan({ cls: "skillhub-collection-empty", text: "No skills installed yet." });
     }
     for (const skill of this.skills) {
       const label = skillsSection.createEl("label", { cls: "skillhub-selection-item" });
@@ -201,7 +201,7 @@ export class InstallSelectionModal extends Modal {
     const collectionsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
     collectionsSection.createEl("h3", { text: "Collections" });
     if (this.collections.length === 0) {
-      collectionsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No collections created yet." });
+      collectionsSection.createSpan({ cls: "skillhub-collection-empty", text: "No collections created yet." });
     }
     for (const collection of this.collections) {
       const label = collectionsSection.createEl("label", { cls: "skillhub-selection-item" });
@@ -322,8 +322,8 @@ export class SkillEditModal extends Modal {
         });
 
         const tagButton = tagEl.createEl("button", { cls: "skillhub-edit-tag-button", attr: { "aria-label": `Delete ${tag}` } });
-        tagButton.createEl("span", { text: tag, cls: "skillhub-tag-text" });
-        tagButton.createEl("span", { text: "×", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
+        tagButton.createSpan({ text: tag, cls: "skillhub-tag-text" });
+        tagButton.createSpan({ text: "×", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
         tagButton.addEventListener("click", () => {
           tags.splice(tags.indexOf(tag), 1);
           renderTags();
@@ -449,7 +449,7 @@ export class SkillDetailModal extends Modal {
   private addDetail(label: string, value: string): void {
     const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
     row.createEl("strong", { text: label });
-    row.createEl("span", { text: value });
+    row.createSpan({ text: value });
   }
 }
 
@@ -472,7 +472,7 @@ export class CollectionDetailModal extends Modal {
   private addDetail(label: string, value: string): void {
     const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
     row.createEl("strong", { text: label });
-    row.createEl("span", { text: value });
+    row.createSpan({ text: value });
   }
 }
 
@@ -510,7 +510,7 @@ export class CollectionEditModal extends Modal {
       skillsEl.createEl("h3", { text: "Skills" });
       const visibleSkills = this.collectionSkills.filter((skill) => skillIds.includes(skill.id));
       if (visibleSkills.length === 0) {
-        skillsEl.createEl("span", { cls: "skillhub-collection-empty", text: "No skills in this collection." });
+        skillsEl.createSpan({ cls: "skillhub-collection-empty", text: "No skills in this collection." });
         return;
       }
 

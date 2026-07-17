@@ -37,6 +37,7 @@ describe("Obsidian review compliance", () => {
     expect(importServiceSource).not.toContain("throw operationError");
     expect(importServiceSource).not.toContain("throw combineErrors(");
     expect(importServiceSource).not.toContain("throw toError(");
+    expect(importServiceSource).not.toContain("throw cleanupCombinedError");
   });
 
   it("does not create DOM elements with native document APIs", async () => {
@@ -45,6 +46,14 @@ describe("Obsidian review compliance", () => {
 
     expect(skillHubViewSource).not.toMatch(/document\.createElement(?:NS)?/);
     expect(modalSource).not.toMatch(/document\.createElement(?:NS)?/);
+  });
+
+  it("uses specific text element helpers where review flags generic createEl spans", async () => {
+    const skillHubViewSource = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+
+    expect(skillHubViewSource).not.toContain("createEl(\"span\"");
+    expect(modalSource).not.toContain("createEl(\"span\"");
   });
 
   it("does not use CSS important overrides", async () => {

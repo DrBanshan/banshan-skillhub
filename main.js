@@ -621,7 +621,7 @@ var SkillImportService = class {
           await (0, import_promises5.rm)(options.stagingPath, { force: true, recursive: true });
         } catch (cleanupError) {
           const cleanupCombinedError = operationError ? combineErrors(operationError, cleanupError, "staging cleanup failed") : combineErrors("Import completed", cleanupError, "staging cleanup failed");
-          throw cleanupCombinedError;
+          return Promise.reject(cleanupCombinedError);
         }
       }
     }
@@ -1033,7 +1033,7 @@ var InstallSelectionModal = class extends import_obsidian2.Modal {
     const skillsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
     skillsSection.createEl("h3", { text: "Skills" });
     if (this.skills.length === 0) {
-      skillsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No skills installed yet." });
+      skillsSection.createSpan({ cls: "skillhub-collection-empty", text: "No skills installed yet." });
     }
     for (const skill of this.skills) {
       const label = skillsSection.createEl("label", { cls: "skillhub-selection-item" });
@@ -1046,7 +1046,7 @@ var InstallSelectionModal = class extends import_obsidian2.Modal {
     const collectionsSection = container.createDiv({ cls: "skillhub-install-selection-section" });
     collectionsSection.createEl("h3", { text: "Collections" });
     if (this.collections.length === 0) {
-      collectionsSection.createEl("span", { cls: "skillhub-collection-empty", text: "No collections created yet." });
+      collectionsSection.createSpan({ cls: "skillhub-collection-empty", text: "No collections created yet." });
     }
     for (const collection of this.collections) {
       const label = collectionsSection.createEl("label", { cls: "skillhub-selection-item" });
@@ -1154,8 +1154,8 @@ var SkillEditModal = class extends import_obsidian2.Modal {
           tagEl.style.setProperty("--skillhub-tag-color", colorInput.value);
         });
         const tagButton = tagEl.createEl("button", { cls: "skillhub-edit-tag-button", attr: { "aria-label": `Delete ${tag}` } });
-        tagButton.createEl("span", { text: tag, cls: "skillhub-tag-text" });
-        tagButton.createEl("span", { text: "\xD7", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
+        tagButton.createSpan({ text: tag, cls: "skillhub-tag-text" });
+        tagButton.createSpan({ text: "\xD7", cls: "skillhub-tag-delete-icon", attr: { "aria-hidden": "true" } });
         tagButton.addEventListener("click", () => {
           tags.splice(tags.indexOf(tag), 1);
           renderTags();
@@ -1269,7 +1269,7 @@ var SkillDetailModal = class extends import_obsidian2.Modal {
   addDetail(label, value) {
     const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
     row.createEl("strong", { text: label });
-    row.createEl("span", { text: value });
+    row.createSpan({ text: value });
   }
 };
 var CollectionDetailModal = class extends import_obsidian2.Modal {
@@ -1290,7 +1290,7 @@ var CollectionDetailModal = class extends import_obsidian2.Modal {
   addDetail(label, value) {
     const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
     row.createEl("strong", { text: label });
-    row.createEl("span", { text: value });
+    row.createSpan({ text: value });
   }
 };
 var CollectionEditModal = class extends import_obsidian2.Modal {
@@ -1323,7 +1323,7 @@ var CollectionEditModal = class extends import_obsidian2.Modal {
       skillsEl.createEl("h3", { text: "Skills" });
       const visibleSkills = this.collectionSkills.filter((skill) => skillIds.includes(skill.id));
       if (visibleSkills.length === 0) {
-        skillsEl.createEl("span", { cls: "skillhub-collection-empty", text: "No skills in this collection." });
+        skillsEl.createSpan({ cls: "skillhub-collection-empty", text: "No skills in this collection." });
         return;
       }
       for (const skill of visibleSkills) {
@@ -1507,7 +1507,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills());
     if (this.selectMode) {
       const bulkToolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar skillhub-bulk-toolbar" });
-      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
+      bulkToolbar.createSpan({ cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
       this.addButton(bulkToolbar, "Update collections", () => this.openBulkCollections(), this.selectedSkillIds.size === 0);
       this.addButton(bulkToolbar, "Delete selected", () => this.openBulkDelete(), this.selectedSkillIds.size === 0);
     }
@@ -1586,11 +1586,11 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       });
     }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
-    if (skill.originalName !== skill.nickname) card.createEl("span", { cls: "skillhub-original-name", text: skill.originalName });
+    if (skill.originalName !== skill.nickname) card.createSpan({ cls: "skillhub-original-name", text: skill.originalName });
     const chips = card.createDiv({ cls: "skillhub-chips" });
     for (const tag of skill.tags) this.renderTagChip(chips, skill, tag);
     if (skill.warnings.length > 0) {
-      chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
+      chips.createSpan({ cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
     }
     const actions = card.createDiv({ cls: "skillhub-card-actions" });
     this.addCardActionButton(actions, "Install", "install", () => this.installSkill(skill));
@@ -1634,7 +1634,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     });
     const header = row.createDiv({ cls: "skillhub-collection-header" });
     header.createEl("strong", { text: collection.name });
-    header.createEl("span", {
+    header.createSpan({
       cls: "skillhub-collection-count",
       text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}`
     });
@@ -1642,7 +1642,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     const members = row.createDiv({ cls: "skillhub-collection-members" });
     const memberSkills = this.getCollectionSkills(collection);
     if (memberSkills.length === 0) {
-      members.createEl("span", { cls: "skillhub-collection-empty", text: "Drop skills here" });
+      members.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
     } else {
       for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
     }
@@ -1731,7 +1731,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     }).open();
   }
   renderTagChip(chips, skill, tag) {
-    const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    const chip = chips.createSpan({ cls: "skillhub-chip", text: tag });
     const tagColor = this.plugin.registry.data.tagColors[tag];
     if (tagColor) {
       chip.addClass("has-color");

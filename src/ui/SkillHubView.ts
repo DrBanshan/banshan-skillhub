@@ -88,7 +88,7 @@ export class SkillHubView extends ItemView {
 
     if (this.selectMode) {
       const bulkToolbar = this.contentEl.createDiv({ cls: "skillhub-toolbar skillhub-bulk-toolbar" });
-      bulkToolbar.createEl("span", { cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
+      bulkToolbar.createSpan({ cls: "skillhub-selection-count", text: `${this.selectedSkillIds.size + this.selectedCollectionIds.size} selected` });
       this.addButton(bulkToolbar, "Update collections", () => this.openBulkCollections(), this.selectedSkillIds.size === 0);
       this.addButton(bulkToolbar, "Delete selected", () => this.openBulkDelete(), this.selectedSkillIds.size === 0);
     }
@@ -170,11 +170,11 @@ export class SkillHubView extends ItemView {
       });
     }
     card.createEl("strong", { text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}` });
-    if (skill.originalName !== skill.nickname) card.createEl("span", { cls: "skillhub-original-name", text: skill.originalName });
+    if (skill.originalName !== skill.nickname) card.createSpan({ cls: "skillhub-original-name", text: skill.originalName });
     const chips = card.createDiv({ cls: "skillhub-chips" });
     for (const tag of skill.tags) this.renderTagChip(chips, skill, tag);
     if (skill.warnings.length > 0) {
-      chips.createEl("span", { cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
+      chips.createSpan({ cls: "skillhub-chip is-warning", text: `${skill.warnings.length} warning${skill.warnings.length === 1 ? "" : "s"}` });
     }
 
     const actions = card.createDiv({ cls: "skillhub-card-actions" });
@@ -224,7 +224,7 @@ export class SkillHubView extends ItemView {
 
     const header = row.createDiv({ cls: "skillhub-collection-header" });
     header.createEl("strong", { text: collection.name });
-    header.createEl("span", {
+    header.createSpan({
       cls: "skillhub-collection-count",
       text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}`
     });
@@ -234,7 +234,7 @@ export class SkillHubView extends ItemView {
     const members = row.createDiv({ cls: "skillhub-collection-members" });
     const memberSkills = this.getCollectionSkills(collection);
     if (memberSkills.length === 0) {
-      members.createEl("span", { cls: "skillhub-collection-empty", text: "Drop skills here" });
+      members.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
     } else {
       for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
     }
@@ -329,7 +329,7 @@ export class SkillHubView extends ItemView {
   }
 
   private renderTagChip(chips: HTMLElement, skill: SkillRecord, tag: string): void {
-    const chip = chips.createEl("span", { cls: "skillhub-chip", text: tag });
+    const chip = chips.createSpan({ cls: "skillhub-chip", text: tag });
     const tagColor = this.plugin.registry.data.tagColors[tag];
     if (tagColor) {
       chip.addClass("has-color");
