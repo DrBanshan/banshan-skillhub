@@ -21,7 +21,7 @@ describe("Obsidian review compliance", () => {
     expect(settingsSource).not.toContain("setControlValue");
     expect(settingsSource).not.toContain("Skill Hub settings");
     expect(settingsSource).not.toContain("createEl(\"h2\"");
-    expect(settingsSource).toContain("eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions");
+    expect(settingsSource).not.toContain("eslint-disable");
     expect(modalSource).not.toContain(".setDestructive()");
     expect(modalSource).not.toContain(".setWarning()");
     expect(modalSource).toContain("setButtonWarning");
