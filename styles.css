@@ -258,6 +258,20 @@ button.skillhub-install-button:hover {
   background-color: var(--interactive-accent);
 }
 
+button.skillhub-pin-button:hover {
+  background-color: var(--interactive-accent);
+}
+
+button.skillhub-pin-button.is-active svg,
+button.skillhub-pin-button.is-active path {
+  stroke: var(--interactive-accent);
+}
+
+button.skillhub-pin-button.is-active:hover svg,
+button.skillhub-pin-button.is-active:hover path {
+  stroke: #fff;
+}
+
 button.skillhub-edit-button:hover {
   background-color: var(--interactive-accent);
 }
@@ -476,7 +490,7 @@ button.skillhub-card-action-button:active {
 
 .skillhub-folder-actions {
   position: absolute;
-  bottom: 3.3em;
+  bottom: 4.8em;
   left: 50%;
   z-index: 5;
   display: flex;

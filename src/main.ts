@@ -41,6 +41,7 @@ export default class SkillHubPlugin extends Plugin {
       skills: saved?.skills ?? {},
       collections: saved?.collections ?? {},
       bundleNames: saved?.bundleNames ?? {},
+      pinnedFolderIds: saved?.pinnedFolderIds ?? [],
       tagColors: collectTagColors({ skills: saved?.skills ?? {}, tagColors: saved?.tagColors }),
       events: saved?.events ?? []
     };

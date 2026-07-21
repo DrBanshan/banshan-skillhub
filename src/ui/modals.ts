@@ -1,6 +1,6 @@
 import { Modal, Notice, Setting, type ButtonComponent } from "obsidian";
 import type { InstallSummary } from "../exportService";
-import type { GitHubSkillBundle } from "../skillBundles";
+import type { SkillBundle } from "../skillBundles";
 import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
 
@@ -455,14 +455,14 @@ export class SkillDetailModal extends Modal {
 }
 
 export class BundleDetailModal extends Modal {
-  constructor(app: Modal["app"], private readonly bundle: GitHubSkillBundle) {
+  constructor(app: Modal["app"], private readonly bundle: SkillBundle) {
     super(app);
   }
 
   onOpen(): void {
     this.setTitle(this.bundle.name);
-    this.addDetail("Author", this.bundle.owner);
-    this.addDetail("Repository", this.bundle.repoUrl);
+    this.addDetail("Source type", this.bundle.sourceType === "npx" ? "npx" : this.bundle.sourceType[0].toLocaleUpperCase() + this.bundle.sourceType.slice(1));
+    this.addDetail("Source", this.bundle.sourceValue);
     this.addDetail("Skills", this.bundle.skills.map((skill) => skill.nickname).join(", "));
     this.addDetail("Skill count", String(this.bundle.skills.length));
   }
@@ -481,7 +481,7 @@ export class BundleDetailModal extends Modal {
 export class BundleEditModal extends Modal {
   constructor(
     app: Modal["app"],
-    private readonly bundle: GitHubSkillBundle,
+    private readonly bundle: SkillBundle,
     private readonly onSubmit: SubmitHandler<string>
   ) {
     super(app);

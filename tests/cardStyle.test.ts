@@ -109,6 +109,8 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-folder.is-drop-target");
     expect(css).toContain("border-color: var(--interactive-accent);");
     expect(css).toContain(".skillhub-folder-actions");
+    expect(css).toContain("bottom: 4.8em;");
+    expect(css).toContain("button.skillhub-pin-button:hover");
   });
 
   it("styles collection skills as neutral reorderable blocks", async () => {

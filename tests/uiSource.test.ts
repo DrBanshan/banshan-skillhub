@@ -82,16 +82,19 @@ describe("skill hub UI source", () => {
     expect(source).toContain("skillOrder");
   });
 
-  it("renders repository bundles and collections as expandable folder tiles", async () => {
+  it("renders source bundles and collections as expandable, pinnable folder tiles", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
     const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 
-    expect(source).toContain("deriveGitHubBundles");
+    expect(source).toContain("deriveSkillBundles");
     expect(source).toContain("renderFolderBoard");
     expect(source).toContain("renderBundleFolder");
     expect(source).toContain("renderCollectionFolder");
     expect(source).toContain("skillhub-folder");
     expect(source).toContain("skillhub-folder-expansion");
+    expect(source).toContain("toggleFolderPin");
+    expect(source).toContain("pinnedFolderIds");
+    expect(source).toContain('"Pin", "pin"');
     expect(source).toContain("handleCollectionDrop");
     expect(source).toContain("updateSkillCollections");
     expect(source).toContain("openCollectionDetailModal");
@@ -100,6 +103,14 @@ describe("skill hub UI source", () => {
     expect(modalSource).toContain("CollectionDetailModal");
     expect(modalSource).toContain("BundleDetailModal");
     expect(modalSource).toContain("BundleEditModal");
+  });
+
+  it("uses one custom tooltip for card actions", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const actionButtonMethod = source.slice(source.indexOf("private addCardActionButton"), source.indexOf("private createSvgIcon"));
+
+    expect(actionButtonMethod).toContain("skillhub-action-tooltip");
+    expect(actionButtonMethod).not.toContain('"aria-label"');
   });
 
   it("renders collection skills as reorderable workflow blocks", async () => {
@@ -128,7 +139,7 @@ describe("skill hub UI source", () => {
   it("installs individual skills and collections from action icons", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
 
-    expect(source).toContain("type CardActionIcon = \"install\" | \"details\" | \"edit\" | \"delete\"");
+    expect(source).toContain("type CardActionIcon = \"install\" | \"pin\" | \"details\" | \"edit\" | \"delete\"");
     expect(source).toContain("openInstallSelectionModal");
     expect(source).toContain("installSkill(skill)");
     expect(source).toContain("installCollection(collection)");

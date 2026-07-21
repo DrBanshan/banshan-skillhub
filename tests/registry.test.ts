@@ -6,6 +6,7 @@ import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "../src
 describe("SkillRegistry", () => {
   it("initializes shared tag colors", () => {
     expect(createEmptySkillHubData().tagColors).toEqual({});
+    expect(createEmptySkillHubData().pinnedFolderIds).toEqual([]);
   });
 
   it("collects legacy per-skill tag colors into shared tag colors", () => {

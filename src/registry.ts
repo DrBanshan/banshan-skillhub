@@ -7,6 +7,7 @@ export function createEmptySkillHubData(): SkillHubData {
     skills: {},
     collections: {},
     bundleNames: {},
+    pinnedFolderIds: [],
     tagColors: {},
     events: []
   };

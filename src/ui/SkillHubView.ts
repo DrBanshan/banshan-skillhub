@@ -2,7 +2,7 @@ import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import { createSkillEvent } from "../events";
 import type SkillHubPlugin from "../main";
 import { collectTagColors } from "../registry";
-import { deriveGitHubBundles, type GitHubSkillBundle } from "../skillBundles";
+import { deriveSkillBundles, type SkillBundle } from "../skillBundles";
 import type { SkillCollection, SkillRecord } from "../types";
 import {
   BundleDetailModal,
@@ -22,7 +22,7 @@ import {
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
 export const SKILL_HUB_ICON_ID = "banshan-skillhub";
-type CardActionIcon = "install" | "details" | "edit" | "delete";
+type CardActionIcon = "install" | "pin" | "details" | "edit" | "delete";
 type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "done" | "download";
 
 export class SkillHubView extends ItemView {
@@ -128,13 +128,13 @@ export class SkillHubView extends ItemView {
     container.empty();
     const visibleSkills = this.getVisibleSkills();
     const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
-    const bundles = deriveGitHubBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleNames);
+    const bundles = deriveSkillBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleNames);
     const bundledSkillIds = new Set(bundles.flatMap((bundle) => bundle.skills.map((skill) => skill.id)));
     const query = this.filterQuery.trim().toLocaleLowerCase();
     const visibleBundles = bundles.map((bundle) => ({
       bundle,
       skills: this.sortSkills(
-        query && [bundle.name, bundle.owner, bundle.repo].some((value) => value.toLocaleLowerCase().includes(query))
+        query && [bundle.name, bundle.sourceLabel, bundle.sourceValue].some((value) => value.toLocaleLowerCase().includes(query))
           ? bundle.skills
           : bundle.skills.filter((skill) => visibleSkillIds.has(skill.id))
       )
@@ -200,16 +200,31 @@ export class SkillHubView extends ItemView {
 
   private renderFolderBoard(
     container: HTMLElement,
-    bundles: Array<{ bundle: GitHubSkillBundle; skills: SkillRecord[] }>,
+    bundles: Array<{ bundle: SkillBundle; skills: SkillRecord[] }>,
     collections: SkillCollection[]
   ): void {
     if (bundles.length === 0 && collections.length === 0) return;
     const board = container.createDiv({ cls: "skillhub-folder-board" });
-    for (const { bundle, skills } of bundles) this.renderBundleFolder(board, bundle, skills);
-    for (const collection of collections) this.renderCollectionFolder(board, collection);
+    const folders = [
+      ...bundles.map(({ bundle, skills }) => ({
+        id: bundle.id,
+        name: bundle.name,
+        render: () => this.renderBundleFolder(board, bundle, skills)
+      })),
+      ...collections.map((collection) => ({
+        id: this.getCollectionFolderId(collection.id),
+        name: collection.name,
+        render: () => this.renderCollectionFolder(board, collection)
+      }))
+    ];
+    folders.sort((left, right) => {
+      const pinOrder = Number(this.isFolderPinned(right.id)) - Number(this.isFolderPinned(left.id));
+      return pinOrder || left.name.localeCompare(right.name);
+    });
+    for (const folder of folders) folder.render();
   }
 
-  private renderBundleFolder(board: HTMLElement, bundle: GitHubSkillBundle, visibleSkills: SkillRecord[]): void {
+  private renderBundleFolder(board: HTMLElement, bundle: SkillBundle, visibleSkills: SkillRecord[]): void {
     const selected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
     const folder = this.createFolderTile(board, {
       id: bundle.id,
@@ -220,6 +235,7 @@ export class SkillHubView extends ItemView {
       onSelect: () => this.toggleBundleSelection(bundle),
       renderActions: (actions) => {
         this.addCardActionButton(actions, "Install", "install", () => this.installBundle(bundle));
+        this.addCardActionButton(actions, this.isFolderPinned(bundle.id) ? "Unpin" : "Pin", "pin", () => void this.toggleFolderPin(bundle.id), this.isFolderPinned(bundle.id));
         this.addCardActionButton(actions, "Details", "details", () => this.openBundleDetailModal(bundle));
         this.addCardActionButton(actions, "Edit", "edit", () => this.openBundleEditModal(bundle));
         this.addCardActionButton(actions, "Delete", "delete", () => this.openBundleDeleteModal(bundle));
@@ -231,7 +247,7 @@ export class SkillHubView extends ItemView {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
     header.createEl("strong", { text: bundle.name });
-    header.createSpan({ text: `${bundle.owner}/${bundle.repo}` });
+    header.createSpan({ text: bundle.sourceLabel });
     const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
     for (const skill of visibleSkills) this.renderCard(grid, skill);
   }
@@ -248,6 +264,7 @@ export class SkillHubView extends ItemView {
       onSelect: () => this.toggleCollectionSelection(collection.id),
       renderActions: (actions) => {
         this.addCardActionButton(actions, "Install", "install", () => this.installCollection(collection));
+        this.addCardActionButton(actions, this.isFolderPinned(folderId) ? "Unpin" : "Pin", "pin", () => void this.toggleFolderPin(folderId), this.isFolderPinned(folderId));
         this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
         this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
         this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
@@ -398,7 +415,7 @@ export class SkillHubView extends ItemView {
     void this.plugin.installSkills([skill]);
   }
 
-  private installBundle(bundle: GitHubSkillBundle): void {
+  private installBundle(bundle: SkillBundle): void {
     void this.plugin.installSkills(bundle.skills);
   }
 
@@ -456,11 +473,11 @@ export class SkillHubView extends ItemView {
     }).open();
   }
 
-  private openBundleDetailModal(bundle: GitHubSkillBundle): void {
+  private openBundleDetailModal(bundle: SkillBundle): void {
     new BundleDetailModal(this.app, bundle).open();
   }
 
-  private openBundleEditModal(bundle: GitHubSkillBundle): void {
+  private openBundleEditModal(bundle: SkillBundle): void {
     new BundleEditModal(this.app, bundle, async (name) => {
       this.plugin.registry.data.bundleNames[bundle.id] = name;
       await this.plugin.saveSkillHubData();
@@ -468,11 +485,12 @@ export class SkillHubView extends ItemView {
     }).open();
   }
 
-  private openBundleDeleteModal(bundle: GitHubSkillBundle): void {
+  private openBundleDeleteModal(bundle: SkillBundle): void {
     new BulkDeleteConfirmationModal(this.app, bundle.skills, async () => {
       try {
         await this.plugin.deleteSkills(bundle.skills);
         delete this.plugin.registry.data.bundleNames[bundle.id];
+        this.removeFolderPin(bundle.id);
         for (const skill of bundle.skills) this.selectedSkillIds.delete(skill.id);
         if (this.expandedFolderId === bundle.id) this.expandedFolderId = undefined;
         await this.plugin.saveSkillHubData();
@@ -499,7 +517,9 @@ export class SkillHubView extends ItemView {
 
   private async deleteCollection(collection: SkillCollection): Promise<void> {
     this.plugin.registry.deleteCollection(collection.id);
-    if (this.expandedFolderId === this.getCollectionFolderId(collection.id)) this.expandedFolderId = undefined;
+    const folderId = this.getCollectionFolderId(collection.id);
+    this.removeFolderPin(folderId);
+    if (this.expandedFolderId === folderId) this.expandedFolderId = undefined;
     this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
     await this.plugin.saveSkillHubData();
     this.render();
@@ -590,7 +610,7 @@ export class SkillHubView extends ItemView {
     this.render();
   }
 
-  private toggleBundleSelection(bundle: GitHubSkillBundle): void {
+  private toggleBundleSelection(bundle: SkillBundle): void {
     const allSelected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
     for (const skill of bundle.skills) {
       allSelected ? this.selectedSkillIds.delete(skill.id) : this.selectedSkillIds.add(skill.id);
@@ -610,6 +630,24 @@ export class SkillHubView extends ItemView {
 
   private getCollectionFolderId(collectionId: string): string {
     return `collection:${collectionId}`;
+  }
+
+  private isFolderPinned(folderId: string): boolean {
+    return this.plugin.registry.data.pinnedFolderIds.includes(folderId);
+  }
+
+  private async toggleFolderPin(folderId: string): Promise<void> {
+    if (this.isFolderPinned(folderId)) {
+      this.removeFolderPin(folderId);
+    } else {
+      this.plugin.registry.data.pinnedFolderIds.push(folderId);
+    }
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+
+  private removeFolderPin(folderId: string): void {
+    this.plugin.registry.data.pinnedFolderIds = this.plugin.registry.data.pinnedFolderIds.filter((id) => id !== folderId);
   }
 
   private openBulkDelete(): void {
@@ -681,6 +719,7 @@ export class SkillHubView extends ItemView {
       },
       delete: async (collection) => {
         this.plugin.registry.deleteCollection(collection.id);
+        this.removeFolderPin(this.getCollectionFolderId(collection.id));
         this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
         await this.plugin.saveSkillHubData();
         this.render();
@@ -818,11 +857,11 @@ export class SkillHubView extends ItemView {
     });
   }
 
-  private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void): void {
-    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : icon === "install" ? "skillhub-install-button" : "skillhub-details-button";
+  private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void, active = false): void {
+    const actionClass = icon === "delete" ? "skillhub-delete-button" : icon === "edit" ? "skillhub-edit-button" : icon === "install" ? "skillhub-install-button" : icon === "pin" ? "skillhub-pin-button" : "skillhub-details-button";
     const button = container.createEl("button", {
-      cls: `skillhub-card-action-button ${actionClass}`,
-      attr: { "aria-label": label }
+      cls: `skillhub-card-action-button ${actionClass}${active ? " is-active" : ""}`,
+      attr: { type: "button", ...(icon === "pin" ? { "aria-pressed": String(active) } : {}) }
     });
     button.createSpan({ cls: "skillhub-action-tooltip", text: label });
     this.createSvgIcon(button, icon);
@@ -844,6 +883,12 @@ export class SkillHubView extends ItemView {
       this.appendSvgElement(svg, "path", { d: "M12 4v10" });
       this.appendSvgElement(svg, "path", { d: "m7 10 5 5 5-5" });
       this.appendSvgElement(svg, "path", { d: "M5 20h14" });
+      return;
+    }
+
+    if (icon === "pin") {
+      this.appendSvgElement(svg, "path", { d: "M12 17v5" });
+      this.appendSvgElement(svg, "path", { d: "M5 10l2-2V4h10v4l2 2v2H5v-2Z" });
       return;
     }
 
