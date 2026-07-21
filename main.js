@@ -220,10 +220,14 @@ function extractNativeFolderPath(files, webUtils) {
   for (let index = 1; index < relativeSegments.length; index += 1) parentSegments.push("..");
   return (0, import_path3.resolve)(selectedPath, ...parentSegments);
 }
+function resolveElectronWebUtils(electron) {
+  var _a, _b;
+  return (_b = electron.webUtils) != null ? _b : (_a = electron.default) == null ? void 0 : _a.webUtils;
+}
 async function getElectronWebUtils() {
   try {
     const electron = await import("electron");
-    return electron.webUtils;
+    return resolveElectronWebUtils(electron);
   } catch (e) {
     return void 0;
   }

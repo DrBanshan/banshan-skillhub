@@ -8,6 +8,10 @@ interface ElectronModule {
   webUtils?: ElectronWebUtils;
 }
 
+interface ElectronImport extends ElectronModule {
+  default?: ElectronModule;
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -43,10 +47,14 @@ export function extractNativeFolderPath(files: ArrayLike<File>, webUtils?: Elect
   return resolve(selectedPath, ...parentSegments);
 }
 
+export function resolveElectronWebUtils(electron: ElectronImport): ElectronWebUtils | undefined {
+  return electron.webUtils ?? electron.default?.webUtils;
+}
+
 async function getElectronWebUtils(): Promise<ElectronWebUtils | undefined> {
   try {
-    const electron = await import("electron") as ElectronModule;
-    return electron.webUtils;
+    const electron = await import("electron") as ElectronImport;
+    return resolveElectronWebUtils(electron);
   } catch {
     return undefined;
   }

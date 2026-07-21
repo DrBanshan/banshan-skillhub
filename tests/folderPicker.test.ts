@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { extractNativeFolderPath } from "../src/folderPicker";
+import { extractNativeFolderPath, resolveElectronWebUtils } from "../src/folderPicker";
 
 describe("extractNativeFolderPath", () => {
   const getPathForFile = vi.fn<(file: File) => string>();
@@ -41,5 +41,19 @@ describe("extractNativeFolderPath", () => {
     const files = [{ webkitRelativePath: "writer/SKILL.md" }] as File[];
 
     expect(() => extractNativeFolderPath(files)).toThrow("webUtils.getPathForFile is unavailable");
+  });
+});
+
+describe("resolveElectronWebUtils", () => {
+  it("reads webUtils from Electron's CommonJS default export", () => {
+    const webUtils = { getPathForFile: vi.fn<(file: File) => string>() };
+
+    expect(resolveElectronWebUtils({ default: { webUtils } })).toBe(webUtils);
+  });
+
+  it("keeps supporting Electron's named export shape", () => {
+    const webUtils = { getPathForFile: vi.fn<(file: File) => string>() };
+
+    expect(resolveElectronWebUtils({ webUtils })).toBe(webUtils);
   });
 });
