@@ -35,7 +35,7 @@ describe("Obsidian review compliance", () => {
     const folderPickerSource = await readFile(new URL("../src/folderPicker.ts", import.meta.url), "utf8");
     const importServiceSource = await readFile(new URL("../src/importService.ts", import.meta.url), "utf8");
 
-    expect(folderPickerSource).toContain("import { webUtils } from \"electron\";");
+    expect(folderPickerSource).toContain("import { remote } from \"electron\";");
     expect(folderPickerSource).not.toContain("import(\"electron\")");
     expect(folderPickerSource).not.toContain("require(");
     expect(folderPickerSource).not.toContain("document.createElement");

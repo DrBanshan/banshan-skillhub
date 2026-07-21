@@ -181,69 +181,28 @@ var SkillExportService = class {
 // src/folderPicker.ts
 var import_electron = require("electron");
 
-// src/folderPath.ts
+// src/folderDialog.ts
 var import_path3 = require("path");
-function extractNativeFolderPath(files, webUtils2) {
-  if (files.length === 0) {
-    throw new Error("Native folder selection cannot select an empty directory because the folder picker did not provide a file. Select a non-empty directory.");
+async function selectNativeFolder(dialog) {
+  if (!dialog) {
+    throw new Error("Native folder selection is unavailable because the Electron native folder dialog is unavailable.");
   }
-  if (!webUtils2) {
-    throw new Error("Native folder selection is unavailable because Electron webUtils.getPathForFile is unavailable.");
+  const result = await dialog.showOpenDialog({
+    title: "Choose a folder",
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled) return void 0;
+  const selectedPath = result.filePaths[0];
+  if (!selectedPath || !(0, import_path3.isAbsolute)(selectedPath)) {
+    throw new Error("Native folder selection did not return an absolute folder path.");
   }
-  let selectedFile;
-  let selectedPath;
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-    const path = webUtils2.getPathForFile(file);
-    if (path && (0, import_path3.isAbsolute)(path)) {
-      selectedFile = file;
-      selectedPath = path;
-      break;
-    }
-  }
-  if (!selectedFile || !selectedPath) {
-    throw new Error("Native folder selection could not provide an absolute folder path through Electron webUtils.getPathForFile.");
-  }
-  const relativeSegments = selectedFile.webkitRelativePath.split("/").filter(Boolean);
-  if (relativeSegments.length < 2) return (0, import_path3.dirname)(selectedPath);
-  const parentSegments = [];
-  for (let index = 1; index < relativeSegments.length; index += 1) parentSegments.push("..");
-  return (0, import_path3.resolve)(selectedPath, ...parentSegments);
+  return selectedPath;
 }
 
 // src/folderPicker.ts
-function toError(error) {
-  return error instanceof Error ? error : new Error(String(error));
-}
 async function pickNativeFolder() {
-  const input = createEl("input", { type: "file" });
-  input.type = "file";
-  input.multiple = true;
-  input.hidden = true;
-  input.setAttribute("webkitdirectory", "");
-  return new Promise((resolveSelection, rejectSelection) => {
-    let settled = false;
-    const finish = (files) => {
-      if (settled) return;
-      settled = true;
-      input.remove();
-      try {
-        resolveSelection(files ? extractNativeFolderPath(files, import_electron.webUtils) : void 0);
-      } catch (error) {
-        rejectSelection(toError(error));
-      }
-    };
-    input.addEventListener("change", () => finish(input.files), { once: true });
-    input.addEventListener("cancel", () => finish(), { once: true });
-    try {
-      document.body.appendChild(input);
-      input.click();
-    } catch (error) {
-      settled = true;
-      input.remove();
-      rejectSelection(toError(error));
-    }
-  });
+  var _a;
+  return selectNativeFolder((_a = import_electron.remote) == null ? void 0 : _a.dialog);
 }
 
 // src/githubImport.ts
@@ -503,7 +462,7 @@ function isWithinPath(path, root) {
 // src/importService.ts
 var import_promises5 = require("fs/promises");
 var import_path6 = require("path");
-function toError2(error) {
+function toError(error) {
   return error instanceof Error ? error : new Error(String(error));
 }
 async function createCollisionSafeFolderName(baseName, exists) {
@@ -599,7 +558,7 @@ var SkillImportService = class {
           }
         }
       }
-      const importError = toError2(operationError);
+      const importError = toError(operationError);
       throw importError;
     } finally {
       if (options.stagingPath) {

@@ -1,45 +1,38 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { extractNativeFolderPath } from "../src/folderPath";
+import { selectNativeFolder, type NativeFolderDialog } from "../src/folderDialog";
 
-describe("extractNativeFolderPath", () => {
-  const getPathForFile = vi.fn<(file: File) => string>();
-  const webUtils = { getPathForFile };
+describe("selectNativeFolder", () => {
+  it("returns an empty directory selected by the native dialog", async () => {
+    const showOpenDialog = vi.fn().mockResolvedValue({
+      canceled: false,
+      filePaths: ["/tmp/empty-install-target"]
+    });
 
-  beforeEach(() => {
-    getPathForFile.mockReset();
+    await expect(selectNativeFolder({ showOpenDialog })).resolves.toBe("/tmp/empty-install-target");
+    expect(showOpenDialog).toHaveBeenCalledWith({
+      title: "Choose a folder",
+      properties: ["openDirectory", "createDirectory"]
+    });
   });
 
-  it("derives the selected directory from Electron webUtils file paths", () => {
-    const files = [{
-      webkitRelativePath: "writer/docs/guide.md"
-    }] as File[];
-    getPathForFile.mockReturnValue("/tmp/skills/writer/docs/guide.md");
+  it("returns undefined when folder selection is canceled", async () => {
+    const dialog: NativeFolderDialog = {
+      showOpenDialog: vi.fn().mockResolvedValue({ canceled: true, filePaths: [] })
+    };
 
-    expect(extractNativeFolderPath(files, webUtils)).toBe("/tmp/skills/writer");
+    await expect(selectNativeFolder(dialog)).resolves.toBeUndefined();
   });
 
-  it("falls back to the selected file's parent when no relative path is exposed", () => {
-    const files = [{ webkitRelativePath: "" }] as File[];
-    getPathForFile.mockReturnValue("/tmp/skills/SKILL.md");
-
-    expect(extractNativeFolderPath(files, webUtils)).toBe("/tmp/skills");
+  it("fails clearly when the native dialog is unavailable", async () => {
+    await expect(selectNativeFolder()).rejects.toThrow("native folder dialog is unavailable");
   });
 
-  it("fails clearly when an empty directory provides no files", () => {
-    expect(() => extractNativeFolderPath([], webUtils)).toThrow("non-empty directory");
-  });
+  it("rejects a non-absolute path returned by the native dialog", async () => {
+    const dialog: NativeFolderDialog = {
+      showOpenDialog: vi.fn().mockResolvedValue({ canceled: false, filePaths: ["relative/path"] })
+    };
 
-  it("fails clearly when Electron webUtils returns an empty file path", () => {
-    const files = [{ webkitRelativePath: "writer/SKILL.md" }] as File[];
-    getPathForFile.mockReturnValue("");
-
-    expect(() => extractNativeFolderPath(files, webUtils)).toThrow("absolute folder path");
-  });
-
-  it("fails clearly when Electron webUtils is unavailable", () => {
-    const files = [{ webkitRelativePath: "writer/SKILL.md" }] as File[];
-
-    expect(() => extractNativeFolderPath(files)).toThrow("webUtils.getPathForFile is unavailable");
+    await expect(selectNativeFolder(dialog)).rejects.toThrow("absolute folder path");
   });
 });

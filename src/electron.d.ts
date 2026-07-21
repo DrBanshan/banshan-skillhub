@@ -1,5 +1,13 @@
 declare module "electron" {
-  export const webUtils: {
-    getPathForFile(file: File): string;
+  export const remote: {
+    dialog?: {
+      showOpenDialog(options: {
+        title: string;
+        properties: Array<"openDirectory" | "createDirectory">;
+      }): Promise<{
+        canceled: boolean;
+        filePaths: string[];
+      }>;
+    };
   } | undefined;
 }
