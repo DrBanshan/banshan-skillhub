@@ -1,9 +1,7 @@
 "use strict";
-var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -17,14 +15,6 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -189,22 +179,22 @@ var SkillExportService = class {
 };
 
 // src/folderPicker.ts
+var import_electron = require("electron");
+
+// src/folderPath.ts
 var import_path3 = require("path");
-function toError(error) {
-  return error instanceof Error ? error : new Error(String(error));
-}
-function extractNativeFolderPath(files, webUtils) {
+function extractNativeFolderPath(files, webUtils2) {
   if (files.length === 0) {
     throw new Error("Native folder selection cannot select an empty directory because the folder picker did not provide a file. Select a non-empty directory.");
   }
-  if (!webUtils) {
+  if (!webUtils2) {
     throw new Error("Native folder selection is unavailable because Electron webUtils.getPathForFile is unavailable.");
   }
   let selectedFile;
   let selectedPath;
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
-    const path = webUtils.getPathForFile(file);
+    const path = webUtils2.getPathForFile(file);
     if (path && (0, import_path3.isAbsolute)(path)) {
       selectedFile = file;
       selectedPath = path;
@@ -220,20 +210,12 @@ function extractNativeFolderPath(files, webUtils) {
   for (let index = 1; index < relativeSegments.length; index += 1) parentSegments.push("..");
   return (0, import_path3.resolve)(selectedPath, ...parentSegments);
 }
-function resolveElectronWebUtils(electron) {
-  var _a, _b;
-  return (_b = electron.webUtils) != null ? _b : (_a = electron.default) == null ? void 0 : _a.webUtils;
-}
-async function getElectronWebUtils() {
-  try {
-    const electron = await import("electron");
-    return resolveElectronWebUtils(electron);
-  } catch (e) {
-    return void 0;
-  }
+
+// src/folderPicker.ts
+function toError(error) {
+  return error instanceof Error ? error : new Error(String(error));
 }
 async function pickNativeFolder() {
-  const webUtils = await getElectronWebUtils();
   const input = createEl("input", { type: "file" });
   input.type = "file";
   input.multiple = true;
@@ -246,7 +228,7 @@ async function pickNativeFolder() {
       settled = true;
       input.remove();
       try {
-        resolveSelection(files ? extractNativeFolderPath(files, webUtils) : void 0);
+        resolveSelection(files ? extractNativeFolderPath(files, import_electron.webUtils) : void 0);
       } catch (error) {
         rejectSelection(toError(error));
       }
