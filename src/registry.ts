@@ -6,6 +6,7 @@ export function createEmptySkillHubData(): SkillHubData {
     settings: { ...DEFAULT_SETTINGS },
     skills: {},
     collections: {},
+    bundleNames: {},
     tagColors: {},
     events: []
   };

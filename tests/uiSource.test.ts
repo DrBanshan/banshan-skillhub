@@ -82,18 +82,24 @@ describe("skill hub UI source", () => {
     expect(source).toContain("skillOrder");
   });
 
-  it("renders collection rows that accept dropped skills and expose icon actions", async () => {
+  it("renders repository bundles and collections as expandable folder tiles", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
     const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 
-    expect(source).toContain("renderCollectionRows");
-    expect(source).toContain("skillhub-collection-row");
+    expect(source).toContain("deriveGitHubBundles");
+    expect(source).toContain("renderFolderBoard");
+    expect(source).toContain("renderBundleFolder");
+    expect(source).toContain("renderCollectionFolder");
+    expect(source).toContain("skillhub-folder");
+    expect(source).toContain("skillhub-folder-expansion");
     expect(source).toContain("handleCollectionDrop");
     expect(source).toContain("updateSkillCollections");
     expect(source).toContain("openCollectionDetailModal");
     expect(source).toContain("openCollectionEditModal");
     expect(source).toContain("deleteCollection");
     expect(modalSource).toContain("CollectionDetailModal");
+    expect(modalSource).toContain("BundleDetailModal");
+    expect(modalSource).toContain("BundleEditModal");
   });
 
   it("renders collection skills as reorderable workflow blocks", async () => {

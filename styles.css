@@ -149,11 +149,12 @@ button.skillhub-toolbar-button:disabled {
 }
 
 .skillhub-card.is-selectable,
-.skillhub-collection-row.is-selectable {
+.skillhub-folder.is-selectable {
   cursor: pointer;
 }
 
-.skillhub-card.is-selected {
+.skillhub-card.is-selected,
+.skillhub-folder.is-selected {
   border-color: var(--interactive-accent);
   box-shadow:
     inset 0 0 0 1px var(--interactive-accent),
@@ -162,8 +163,8 @@ button.skillhub-toolbar-button:disabled {
 
 .skillhub-card.is-selectable:hover,
 .skillhub-card.is-selectable:focus-visible,
-.skillhub-collection-row.is-selectable:hover,
-.skillhub-collection-row.is-selectable:focus-visible {
+.skillhub-folder.is-selectable:hover,
+.skillhub-folder.is-selectable:focus-visible {
   border-color: var(--interactive-accent);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 80%, transparent),
@@ -313,52 +314,229 @@ button.skillhub-card-action-button:active {
   opacity: 1;
 }
 
-.skillhub-collections-board {
+.skillhub-folder-board {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  margin-top: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px 12px;
+  margin-top: 16px;
 }
 
-.skillhub-collection-row {
+.skillhub-folder {
+  --skillhub-folder-color: #fbc548;
+  --folder-back-1: color-mix(in srgb, var(--skillhub-folder-color) 78%, #fff);
+  --folder-back-2: color-mix(in srgb, var(--skillhub-folder-color) 82%, #b86c12);
+  --folder-front-1: color-mix(in srgb, var(--skillhub-folder-color) 68%, #fff);
+  --folder-front-2: var(--skillhub-folder-color);
+  --folder-edge: color-mix(in srgb, var(--skillhub-folder-color) 70%, #8a5413);
+  --folder-paper: #fdfdfb;
+  --folder-paper-2: #f1f0ea;
+  --folder-radius: 0.875em;
+  --folder-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   position: relative;
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--skillhub-collection-color, var(--background-modifier-border)) 58%, var(--background-modifier-border));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--skillhub-collection-color, var(--background-secondary)) 14%, var(--background-secondary));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--skillhub-collection-color, transparent) 18%, transparent);
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  display: inline-block;
+  justify-self: center;
+  width: min(16em, 100%);
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-normal);
+  cursor: pointer;
+  font-family: var(--font-interface);
+  font-size: 16px;
+  user-select: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
-.skillhub-collection-row.is-selected {
-  border-color: var(--interactive-accent);
+.skillhub-folder__shape {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 4;
+  transition: transform 0.45s var(--folder-ease);
+}
+
+.skillhub-folder__back {
+  position: absolute;
+  inset: 14% 0 0;
+  border-radius: 0.25em var(--folder-radius) var(--folder-radius) var(--folder-radius);
+  background: linear-gradient(135deg, var(--folder-back-1), var(--folder-back-2));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.skillhub-folder__back::before {
+  position: absolute;
+  top: -13%;
+  left: 0;
+  width: 46%;
+  height: 16%;
+  border-radius: 0.375em 0.375em 0 0;
+  background: linear-gradient(135deg, var(--folder-back-1), var(--folder-back-2));
+  clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%);
+  content: "";
+}
+
+.skillhub-folder__papers {
+  position: absolute;
+  inset: 6% 8% 12%;
+  z-index: 2;
+  display: block;
+}
+
+.skillhub-folder__paper {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 86%;
+  height: 78%;
+  overflow: hidden;
+  border-radius: 0.375em;
+  background: var(--folder-paper);
+  box-shadow: 0 0.25em 0.875em rgba(60, 40, 10, 0.12);
+  translate: -50% 0;
+  transition: transform 0.45s var(--folder-ease), bottom 0.45s var(--folder-ease);
+}
+
+.skillhub-folder__paper::before,
+.skillhub-folder__paper::after {
+  position: absolute;
+  right: 24%;
+  left: 14%;
+  height: 6%;
+  border-radius: 0.2em;
+  background: var(--folder-paper-2);
+  content: "";
+}
+
+.skillhub-folder__paper::before {
+  top: 22%;
+}
+
+.skillhub-folder__paper::after {
+  top: 40%;
+  right: 40%;
+}
+
+.skillhub-folder__paper--1 {
+  width: 78%;
+  height: 70%;
+  background: #f6f4ee;
+}
+
+.skillhub-folder__paper--2 {
+  width: 82%;
+  height: 74%;
+  background: #fbfaf6;
+}
+
+.skillhub-folder__front {
+  position: absolute;
+  inset: 38% 0 0;
+  z-index: 3;
+  border-radius: var(--folder-radius);
+  background: linear-gradient(150deg, var(--folder-front-1), var(--folder-front-2));
   box-shadow:
-    inset 0 0 0 1px var(--interactive-accent),
-    0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 -1px 0 var(--folder-edge),
+    0 0.875em 1.375em -0.75em rgba(120, 80, 10, 0.35);
+  transform-origin: bottom center;
+  transition: transform 0.45s var(--folder-ease);
 }
 
-.skillhub-collection-row.is-drop-target {
-  border-color: var(--interactive-accent);
-  box-shadow:
-    inset 0 0 0 1px var(--interactive-accent),
-    0 0 0 2px color-mix(in srgb, var(--interactive-accent) 24%, transparent);
-  transform: translateY(-1px);
+.skillhub-folder__front::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--folder-radius);
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.35), transparent 45%);
+  content: "";
+  pointer-events: none;
 }
 
-.skillhub-collection-header,
-.skillhub-collection-members,
-.skillhub-collection-actions {
+.skillhub-folder__meta {
+  display: block;
+  margin-top: 0.7em;
+  text-align: center;
+}
+
+.skillhub-folder__title {
+  display: block;
+  overflow: hidden;
+  font-size: 1.05em;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skillhub-folder__count {
+  display: block;
+  margin-top: 0.15em;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.skillhub-folder-actions {
+  position: absolute;
+  bottom: 3.3em;
+  left: 50%;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 12px);
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+
+.skillhub-folder:hover .skillhub-folder-actions,
+.skillhub-folder:focus-within .skillhub-folder-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.skillhub-folder.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+
+.skillhub-folder.is-drop-target {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+}
+
+.skillhub-folder-expansion {
+  position: relative;
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--skillhub-collection-color, var(--interactive-accent)) 45%, var(--background-modifier-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--skillhub-collection-color, var(--interactive-accent)) 8%, var(--background-secondary));
+}
+
+.skillhub-folder-expansion.is-drop-target {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 24%, transparent);
+}
+
+.skillhub-folder-expansion-header,
+.skillhub-collection-members {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: 6px;
 }
 
-.skillhub-collection-count,
+.skillhub-folder-expansion-header {
+  margin-bottom: 10px;
+}
+
+.skillhub-folder-expansion-header span,
 .skillhub-collection-empty,
 .skillhub-collection-description {
   color: var(--text-muted);
@@ -369,17 +547,47 @@ button.skillhub-card-action-button:active {
   margin: 0;
 }
 
-.skillhub-collection-actions {
-  overflow: visible;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
+.skillhub-folder-expanded-grid {
+  width: 100%;
 }
 
-.skillhub-collection-row:hover .skillhub-collection-actions,
-.skillhub-collection-row:focus-within .skillhub-collection-actions {
-  opacity: 1;
-  pointer-events: auto;
+@media (hover: hover) {
+  .skillhub-folder:hover .skillhub-folder__shape,
+  .skillhub-folder.is-expanded .skillhub-folder__shape {
+    transform: translateY(-0.375em);
+  }
+
+  .skillhub-folder:hover .skillhub-folder__front,
+  .skillhub-folder.is-expanded .skillhub-folder__front {
+    transform: rotateX(-32deg);
+  }
+
+  .skillhub-folder:hover .skillhub-folder__paper,
+  .skillhub-folder.is-expanded .skillhub-folder__paper {
+    transform: translateY(-26%);
+  }
+
+  .skillhub-folder:hover .skillhub-folder__paper--1,
+  .skillhub-folder.is-expanded .skillhub-folder__paper--1 {
+    transform: translate(-26%, -18%) rotate(-7deg);
+  }
+
+  .skillhub-folder:hover .skillhub-folder__paper--2,
+  .skillhub-folder.is-expanded .skillhub-folder__paper--2 {
+    transform: translate(22%, -22%) rotate(6deg);
+  }
+}
+
+.skillhub-folder:active .skillhub-folder__shape {
+  transform: translateY(-0.125em) scale(0.99);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skillhub-folder__shape,
+  .skillhub-folder__front,
+  .skillhub-folder__paper {
+    transition: none;
+  }
 }
 
 button.skillhub-collection-skill-block {

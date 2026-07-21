@@ -57,6 +57,7 @@ export interface SkillHubData {
   settings: SkillHubSettings;
   skills: Record<string, SkillRecord>;
   collections: Record<string, SkillCollection>;
+  bundleNames: Record<string, string>;
   tagColors: Record<string, string>;
   events: SkillEvent[];
 }

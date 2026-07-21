@@ -27,10 +27,10 @@ describe("skill card color styling", () => {
     expect(css).not.toContain(".skillhub-card-select");
     expect(css).not.toContain(".skillhub-collection-select");
     expect(css).toContain(".skillhub-card.is-selected");
-    expect(css).toContain(".skillhub-collection-row.is-selected");
+    expect(css).toContain(".skillhub-folder.is-selected");
     expect(css).toContain("0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent)");
     expect(css).toContain(".skillhub-card.is-selectable");
-    expect(css).toContain(".skillhub-collection-row.is-selectable");
+    expect(css).toContain(".skillhub-folder.is-selectable");
   });
 
   it("shows the tag delete control only when interacting with the tag", async () => {
@@ -96,15 +96,19 @@ describe("skill card color styling", () => {
     expect(css).toContain("transform: translate(3px, 3px);");
   });
 
-  it("styles collection rows as full-width drop targets", async () => {
+  it("styles bundle and collection folders with full-width expansions", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".skillhub-collections-board");
-    expect(css).toContain(".skillhub-collection-row");
+    expect(css).toContain(".skillhub-folder-board");
+    expect(css).toContain(".skillhub-folder");
+    expect(css).toContain(".skillhub-folder__back");
+    expect(css).toContain(".skillhub-folder__front");
+    expect(css).toContain(".skillhub-folder__papers");
+    expect(css).toContain(".skillhub-folder-expansion");
     expect(css).toContain("grid-column: 1 / -1;");
-    expect(css).toContain(".skillhub-collection-row.is-drop-target");
+    expect(css).toContain(".skillhub-folder.is-drop-target");
     expect(css).toContain("border-color: var(--interactive-accent);");
-    expect(css).toContain(".skillhub-collection-actions");
+    expect(css).toContain(".skillhub-folder-actions");
   });
 
   it("styles collection skills as neutral reorderable blocks", async () => {
@@ -120,9 +124,9 @@ describe("skill card color styling", () => {
   it("reveals collection actions and edit removal controls only on interaction", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".skillhub-collection-actions");
-    expect(css).toContain(".skillhub-collection-row:hover .skillhub-collection-actions");
-    expect(css).toContain(".skillhub-collection-row:focus-within .skillhub-collection-actions");
+    expect(css).toContain(".skillhub-folder-actions");
+    expect(css).toContain(".skillhub-folder:hover .skillhub-folder-actions");
+    expect(css).toContain(".skillhub-folder:focus-within .skillhub-folder-actions");
     expect(css).toContain(".skillhub-collection-edit-skill-remove");
     expect(css).toContain(".skillhub-collection-edit-skill:hover .skillhub-collection-edit-skill-remove");
     expect(css).toContain(".skillhub-collection-edit-skill:focus-within .skillhub-collection-edit-skill-remove");

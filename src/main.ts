@@ -40,6 +40,7 @@ export default class SkillHubPlugin extends Plugin {
       settings: { ...DEFAULT_SETTINGS, ...saved?.settings },
       skills: saved?.skills ?? {},
       collections: saved?.collections ?? {},
+      bundleNames: saved?.bundleNames ?? {},
       tagColors: collectTagColors({ skills: saved?.skills ?? {}, tagColors: saved?.tagColors }),
       events: saved?.events ?? []
     };

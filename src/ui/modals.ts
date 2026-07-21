@@ -1,5 +1,6 @@
 import { Modal, Notice, Setting, type ButtonComponent } from "obsidian";
 import type { InstallSummary } from "../exportService";
+import type { GitHubSkillBundle } from "../skillBundles";
 import { createCleanupOnce } from "../stagingCleanup";
 import type { SkillCollection, SkillRecord } from "../types";
 
@@ -450,6 +451,56 @@ export class SkillDetailModal extends Modal {
     const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
     row.createEl("strong", { text: label });
     row.createSpan({ text: value });
+  }
+}
+
+export class BundleDetailModal extends Modal {
+  constructor(app: Modal["app"], private readonly bundle: GitHubSkillBundle) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle(this.bundle.name);
+    this.addDetail("Author", this.bundle.owner);
+    this.addDetail("Repository", this.bundle.repoUrl);
+    this.addDetail("Skills", this.bundle.skills.map((skill) => skill.nickname).join(", "));
+    this.addDetail("Skill count", String(this.bundle.skills.length));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private addDetail(label: string, value: string): void {
+    const row = this.contentEl.createDiv({ cls: "skillhub-detail-row" });
+    row.createEl("strong", { text: label });
+    row.createSpan({ text: value });
+  }
+}
+
+export class BundleEditModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly bundle: GitHubSkillBundle,
+    private readonly onSubmit: SubmitHandler<string>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Edit bundle");
+    let name = this.bundle.name;
+    new Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => { name = value; }));
+    new Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
+      const nextName = name.trim();
+      if (!nextName) return;
+      await this.onSubmit(nextName);
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 

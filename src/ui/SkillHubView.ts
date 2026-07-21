@@ -2,8 +2,11 @@ import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import { createSkillEvent } from "../events";
 import type SkillHubPlugin from "../main";
 import { collectTagColors } from "../registry";
+import { deriveGitHubBundles, type GitHubSkillBundle } from "../skillBundles";
 import type { SkillCollection, SkillRecord } from "../types";
 import {
+  BundleDetailModal,
+  BundleEditModal,
   BulkCollectionMembershipModal,
   BulkDeleteConfirmationModal,
   CollectionDetailModal,
@@ -26,6 +29,7 @@ export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
   private readonly selectedCollectionIds = new Set<string>();
   private pendingCollectionDrag: { collectionId: string; skillId: string; handled: boolean } | undefined;
+  private expandedFolderId: string | undefined;
   private selectMode = false;
   private filterQuery = "";
 
@@ -122,19 +126,36 @@ export class SkillHubView extends ItemView {
 
   private renderSkillGrid(container: HTMLElement): void {
     container.empty();
-    const skills = this.getVisibleSkills();
-    if (skills.length === 0) {
+    const visibleSkills = this.getVisibleSkills();
+    const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
+    const bundles = deriveGitHubBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleNames);
+    const bundledSkillIds = new Set(bundles.flatMap((bundle) => bundle.skills.map((skill) => skill.id)));
+    const query = this.filterQuery.trim().toLocaleLowerCase();
+    const visibleBundles = bundles.map((bundle) => ({
+      bundle,
+      skills: this.sortSkills(
+        query && [bundle.name, bundle.owner, bundle.repo].some((value) => value.toLocaleLowerCase().includes(query))
+          ? bundle.skills
+          : bundle.skills.filter((skill) => visibleSkillIds.has(skill.id))
+      )
+    })).filter(({ skills }) => skills.length > 0);
+    const standaloneSkills = visibleSkills.filter((skill) => !bundledSkillIds.has(skill.id));
+    const collections = Object.values(this.plugin.registry.data.collections)
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    if (standaloneSkills.length === 0 && visibleBundles.length === 0 && collections.length === 0) {
       container.createEl("p", {
         cls: "skillhub-empty",
         text: Object.keys(this.plugin.registry.data.skills).length === 0 ? "No skills installed yet." : "No skills match this filter."
       });
-      this.renderCollectionRows(container);
       return;
     }
 
-    const grid = container.createDiv({ cls: "skillhub-grid" });
-    for (const skill of skills) this.renderCard(grid, skill);
-    this.renderCollectionRows(container);
+    if (standaloneSkills.length > 0) {
+      const grid = container.createDiv({ cls: "skillhub-grid" });
+      for (const skill of standaloneSkills) this.renderCard(grid, skill);
+    }
+    this.renderFolderBoard(container, visibleBundles, collections);
   }
 
   private renderCard(grid: HTMLElement, skill: SkillRecord): void {
@@ -177,47 +198,74 @@ export class SkillHubView extends ItemView {
     this.addCardActionButton(actions, "Delete", "delete", () => this.openDeleteModal(skill));
   }
 
-  private renderCollectionRows(container: HTMLElement): void {
-    const collections = Object.values(this.plugin.registry.data.collections)
-      .sort((left, right) => left.name.localeCompare(right.name));
-    if (collections.length === 0) return;
-
-    const board = container.createDiv({ cls: "skillhub-collections-board" });
-    for (const collection of collections) this.renderCollectionRow(board, collection);
+  private renderFolderBoard(
+    container: HTMLElement,
+    bundles: Array<{ bundle: GitHubSkillBundle; skills: SkillRecord[] }>,
+    collections: SkillCollection[]
+  ): void {
+    if (bundles.length === 0 && collections.length === 0) return;
+    const board = container.createDiv({ cls: "skillhub-folder-board" });
+    for (const { bundle, skills } of bundles) this.renderBundleFolder(board, bundle, skills);
+    for (const collection of collections) this.renderCollectionFolder(board, collection);
   }
 
-  private renderCollectionRow(board: HTMLElement, collection: SkillCollection): void {
-    const selected = this.selectedCollectionIds.has(collection.id);
-    const row = board.createDiv({ cls: `skillhub-collection-row${selected ? " is-selected" : ""}` });
-    if (collection.color) row.style.setProperty("--skillhub-collection-color", collection.color);
-    if (this.selectMode) this.configureSelectableBlock(row, selected, () => this.toggleCollectionSelection(collection.id));
-
-    row.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      row.addClass("is-drop-target");
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    });
-    row.addEventListener("dragleave", () => row.removeClass("is-drop-target"));
-    row.addEventListener("drop", (event) => {
-      event.preventDefault();
-      row.removeClass("is-drop-target");
-      const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
-      if (skillId) {
-        this.markCollectionDragHandled();
-        void this.handleCollectionDrop(skillId, collection.id);
+  private renderBundleFolder(board: HTMLElement, bundle: GitHubSkillBundle, visibleSkills: SkillRecord[]): void {
+    const selected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
+    const folder = this.createFolderTile(board, {
+      id: bundle.id,
+      title: bundle.name,
+      count: bundle.skills.length,
+      selected,
+      onToggle: () => this.toggleExpandedFolder(bundle.id),
+      onSelect: () => this.toggleBundleSelection(bundle),
+      renderActions: (actions) => {
+        this.addCardActionButton(actions, "Install", "install", () => this.installBundle(bundle));
+        this.addCardActionButton(actions, "Details", "details", () => this.openBundleDetailModal(bundle));
+        this.addCardActionButton(actions, "Edit", "edit", () => this.openBundleEditModal(bundle));
+        this.addCardActionButton(actions, "Delete", "delete", () => this.openBundleDeleteModal(bundle));
       }
     });
+    folder.addClass("is-bundle");
 
-    const header = row.createDiv({ cls: "skillhub-collection-header" });
-    header.createEl("strong", { text: collection.name });
-    header.createSpan({
-      cls: "skillhub-collection-count",
-      text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}`
+    if (this.expandedFolderId !== bundle.id) return;
+    const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
+    const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
+    header.createEl("strong", { text: bundle.name });
+    header.createSpan({ text: `${bundle.owner}/${bundle.repo}` });
+    const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
+    for (const skill of visibleSkills) this.renderCard(grid, skill);
+  }
+
+  private renderCollectionFolder(board: HTMLElement, collection: SkillCollection): void {
+    const selected = this.selectedCollectionIds.has(collection.id);
+    const folderId = this.getCollectionFolderId(collection.id);
+    const folder = this.createFolderTile(board, {
+      id: folderId,
+      title: collection.name,
+      count: collection.skillIds.length,
+      selected,
+      onToggle: () => this.toggleExpandedFolder(folderId),
+      onSelect: () => this.toggleCollectionSelection(collection.id),
+      renderActions: (actions) => {
+        this.addCardActionButton(actions, "Install", "install", () => this.installCollection(collection));
+        this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
+        this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
+        this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
+      }
     });
+    folder.addClass("is-collection");
+    if (collection.color) folder.style.setProperty("--skillhub-folder-color", collection.color);
+    this.configureCollectionDropTarget(folder, collection.id);
 
-    if (collection.description) row.createEl("p", { cls: "skillhub-collection-description", text: collection.description });
-
-    const members = row.createDiv({ cls: "skillhub-collection-members" });
+    if (this.expandedFolderId !== folderId) return;
+    const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-collection" });
+    if (collection.color) expansion.style.setProperty("--skillhub-collection-color", collection.color);
+    this.configureCollectionDropTarget(expansion, collection.id);
+    const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
+    header.createEl("strong", { text: collection.name });
+    header.createSpan({ text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}` });
+    if (collection.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: collection.description });
+    const members = expansion.createDiv({ cls: "skillhub-collection-members" });
     const memberSkills = this.getCollectionSkills(collection);
     if (memberSkills.length === 0) {
       members.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
@@ -225,11 +273,72 @@ export class SkillHubView extends ItemView {
       for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
     }
 
-    const actions = row.createDiv({ cls: "skillhub-collection-actions" });
-    this.addCardActionButton(actions, "Install", "install", () => this.installCollection(collection));
-    this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
-    this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
-    this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
+  }
+
+  private createFolderTile(
+    board: HTMLElement,
+    options: {
+      id: string;
+      title: string;
+      count: number;
+      selected: boolean;
+      onToggle: () => void;
+      onSelect: () => void;
+      renderActions: (actions: HTMLElement) => void;
+    }
+  ): HTMLElement {
+    const expanded = this.expandedFolderId === options.id;
+    const folder = board.createDiv({ cls: `skillhub-folder${expanded ? " is-expanded" : ""}${options.selected ? " is-selected" : ""}` });
+    folder.setAttribute("role", "button");
+    folder.setAttribute("tabindex", "0");
+    folder.setAttribute("aria-expanded", expanded ? "true" : "false");
+    folder.setAttribute("aria-label", `${options.title}, ${options.count} skills`);
+    if (this.selectMode) {
+      this.configureSelectableBlock(folder, options.selected, options.onSelect);
+    } else {
+      folder.addEventListener("click", (event) => {
+        if (this.isInteractiveSelectionTarget(event.target)) return;
+        options.onToggle();
+      });
+      folder.addEventListener("keydown", (event) => {
+        if (this.isInteractiveSelectionTarget(event.target)) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        options.onToggle();
+      });
+    }
+
+    const shape = folder.createDiv({ cls: "skillhub-folder__shape" });
+    shape.createDiv({ cls: "skillhub-folder__back" });
+    const papers = shape.createDiv({ cls: "skillhub-folder__papers" });
+    papers.createSpan({ cls: "skillhub-folder__paper skillhub-folder__paper--1" });
+    papers.createSpan({ cls: "skillhub-folder__paper skillhub-folder__paper--2" });
+    papers.createSpan({ cls: "skillhub-folder__paper skillhub-folder__paper--3" });
+    shape.createDiv({ cls: "skillhub-folder__front" });
+    const meta = folder.createDiv({ cls: "skillhub-folder__meta" });
+    meta.createSpan({ cls: "skillhub-folder__title", text: options.title });
+    meta.createSpan({ cls: "skillhub-folder__count", text: `${options.count} skill${options.count === 1 ? "" : "s"}` });
+    const actions = folder.createDiv({ cls: "skillhub-folder-actions" });
+    options.renderActions(actions);
+    return folder;
+  }
+
+  private configureCollectionDropTarget(element: HTMLElement, collectionId: string): void {
+    element.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      element.addClass("is-drop-target");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+    element.addEventListener("dragleave", () => element.removeClass("is-drop-target"));
+    element.addEventListener("drop", (event) => {
+      event.preventDefault();
+      element.removeClass("is-drop-target");
+      const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
+      if (skillId) {
+        this.markCollectionDragHandled();
+        void this.handleCollectionDrop(skillId, collectionId);
+      }
+    });
   }
 
   private renderCollectionSkillBlock(members: HTMLElement, collection: SkillCollection, skill: SkillRecord): void {
@@ -289,6 +398,10 @@ export class SkillHubView extends ItemView {
     void this.plugin.installSkills([skill]);
   }
 
+  private installBundle(bundle: GitHubSkillBundle): void {
+    void this.plugin.installSkills(bundle.skills);
+  }
+
   private installCollection(collection: SkillCollection): void {
     const skills = this.getCollectionSkills(collection);
     if (skills.length === 0) {
@@ -343,6 +456,33 @@ export class SkillHubView extends ItemView {
     }).open();
   }
 
+  private openBundleDetailModal(bundle: GitHubSkillBundle): void {
+    new BundleDetailModal(this.app, bundle).open();
+  }
+
+  private openBundleEditModal(bundle: GitHubSkillBundle): void {
+    new BundleEditModal(this.app, bundle, async (name) => {
+      this.plugin.registry.data.bundleNames[bundle.id] = name;
+      await this.plugin.saveSkillHubData();
+      this.render();
+    }).open();
+  }
+
+  private openBundleDeleteModal(bundle: GitHubSkillBundle): void {
+    new BulkDeleteConfirmationModal(this.app, bundle.skills, async () => {
+      try {
+        await this.plugin.deleteSkills(bundle.skills);
+        delete this.plugin.registry.data.bundleNames[bundle.id];
+        for (const skill of bundle.skills) this.selectedSkillIds.delete(skill.id);
+        if (this.expandedFolderId === bundle.id) this.expandedFolderId = undefined;
+        await this.plugin.saveSkillHubData();
+        this.render();
+      } catch (error) {
+        new Notice(error instanceof Error ? error.message : String(error));
+      }
+    }).open();
+  }
+
   private openCollectionDetailModal(collection: SkillCollection): void {
     new CollectionDetailModal(this.app, collection, this.getCollectionSkills(collection)).open();
   }
@@ -359,6 +499,7 @@ export class SkillHubView extends ItemView {
 
   private async deleteCollection(collection: SkillCollection): Promise<void> {
     this.plugin.registry.deleteCollection(collection.id);
+    if (this.expandedFolderId === this.getCollectionFolderId(collection.id)) this.expandedFolderId = undefined;
     this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
     await this.plugin.saveSkillHubData();
     this.render();
@@ -433,6 +574,7 @@ export class SkillHubView extends ItemView {
       onToggle();
     });
     element.addEventListener("keydown", (event) => {
+      if (this.isInteractiveSelectionTarget(event.target)) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       onToggle();
@@ -448,9 +590,26 @@ export class SkillHubView extends ItemView {
     this.render();
   }
 
+  private toggleBundleSelection(bundle: GitHubSkillBundle): void {
+    const allSelected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
+    for (const skill of bundle.skills) {
+      allSelected ? this.selectedSkillIds.delete(skill.id) : this.selectedSkillIds.add(skill.id);
+    }
+    this.render();
+  }
+
   private toggleCollectionSelection(collectionId: string): void {
     this.selectedCollectionIds.has(collectionId) ? this.selectedCollectionIds.delete(collectionId) : this.selectedCollectionIds.add(collectionId);
     this.render();
+  }
+
+  private toggleExpandedFolder(folderId: string): void {
+    this.expandedFolderId = this.expandedFolderId === folderId ? undefined : folderId;
+    this.render();
+  }
+
+  private getCollectionFolderId(collectionId: string): string {
+    return `collection:${collectionId}`;
   }
 
   private openBulkDelete(): void {
@@ -562,9 +721,13 @@ export class SkillHubView extends ItemView {
         return [skill.nickname, skill.originalName, skill.description, ...skill.tags, ...collectionNames]
           .some((value) => value.toLocaleLowerCase().includes(query));
       });
+    return this.sortSkills(visibleSkills);
+  }
+
+  private sortSkills(skills: SkillRecord[]): SkillRecord[] {
     const sort = this.plugin.data.settings.defaultSort;
-    if (sort === "custom") return this.sortByCustomOrder(visibleSkills);
-    return visibleSkills.sort((left, right) => {
+    if (sort === "custom") return this.sortByCustomOrder(skills);
+    return [...skills].sort((left, right) => {
       if (sort === "updatedAt") return right.updatedAt.localeCompare(left.updatedAt);
       return left[sort].localeCompare(right[sort]);
     });
@@ -635,7 +798,10 @@ export class SkillHubView extends ItemView {
   private addButton(container: HTMLElement, label: string, onClick: () => void, disabled = false): void {
     const button = container.createEl("button", { text: label });
     button.disabled = disabled;
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onClick();
+    });
   }
 
   private addToolbarButton(container: HTMLElement, label: string, icon: ToolbarIcon, onClick: () => void, disabled = false): void {
@@ -646,7 +812,10 @@ export class SkillHubView extends ItemView {
     button.disabled = disabled;
     button.createSpan({ cls: "skillhub-toolbar-label", text: label });
     this.createToolbarIcon(button, icon);
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onClick();
+    });
   }
 
   private addCardActionButton(container: HTMLElement, label: string, icon: CardActionIcon, onClick: () => void): void {
@@ -657,7 +826,10 @@ export class SkillHubView extends ItemView {
     });
     button.createSpan({ cls: "skillhub-action-tooltip", text: label });
     this.createSvgIcon(button, icon);
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onClick();
+    });
   }
 
   private createSvgIcon(container: HTMLElement, icon: CardActionIcon): void {
