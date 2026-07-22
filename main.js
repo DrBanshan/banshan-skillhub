@@ -729,8 +729,9 @@ function createEmptySkillHubData() {
     settings: { ...DEFAULT_SETTINGS },
     skills: {},
     collections: {},
-    bundleNames: {},
+    bundleMetadata: {},
     pinnedFolderIds: [],
+    folderOrder: [],
     tagColors: {},
     events: []
   };
@@ -1291,6 +1292,7 @@ var BundleDetailModal = class extends import_obsidian2.Modal {
   }
   onOpen() {
     this.setTitle(this.bundle.name);
+    this.addDetail("Description", this.bundle.description || "No description provided.");
     this.addDetail("Source type", this.bundle.sourceType === "npx" ? "npx" : this.bundle.sourceType[0].toLocaleUpperCase() + this.bundle.sourceType.slice(1));
     this.addDetail("Source", this.bundle.sourceValue);
     this.addDetail("Skills", this.bundle.skills.map((skill) => skill.nickname).join(", "));
@@ -1312,17 +1314,54 @@ var BundleEditModal = class extends import_obsidian2.Modal {
     this.onSubmit = onSubmit;
   }
   onOpen() {
+    var _a;
     this.setTitle("Edit bundle");
     let name = this.bundle.name;
+    let description = this.bundle.description;
+    let color = (_a = this.bundle.color) != null ? _a : "#fbc548";
+    let skillIds = this.bundle.skills.map((skill) => skill.id);
     new import_obsidian2.Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => {
       name = value;
     }));
+    new import_obsidian2.Setting(this.contentEl).setName("Description").addText((text) => text.setValue(description).onChange((value) => {
+      description = value;
+    }));
+    new import_obsidian2.Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => {
+      color = value;
+    }));
+    const skillsEl = this.contentEl.createDiv({ cls: "skillhub-collection-edit-skills" });
+    const renderSkills = () => {
+      skillsEl.empty();
+      skillsEl.createEl("h3", { text: "Skills" });
+      const visibleSkills = this.bundle.skills.filter((skill) => skillIds.includes(skill.id));
+      if (visibleSkills.length === 0) {
+        skillsEl.createSpan({ cls: "skillhub-collection-empty", text: "No skills in this bundle." });
+        return;
+      }
+      for (const skill of visibleSkills) {
+        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill-row" });
+        const removeButton = row.createEl("button", {
+          cls: "skillhub-collection-edit-skill",
+          attr: { "aria-label": `Remove ${skill.nickname}` }
+        });
+        removeButton.createSpan({
+          cls: "skillhub-collection-edit-skill-label",
+          text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`
+        });
+        removeButton.createSpan({ cls: "skillhub-collection-edit-skill-remove", text: "\xD7", attr: { "aria-hidden": "true" } });
+        removeButton.addEventListener("click", () => {
+          skillIds = skillIds.filter((skillId) => skillId !== skill.id);
+          renderSkills();
+        });
+      }
+    };
     new import_obsidian2.Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
       const nextName = name.trim();
       if (!nextName) return;
-      await this.onSubmit(nextName);
+      await this.onSubmit({ name: nextName, description: description.trim(), color, skillIds });
       this.close();
     }));
+    renderSkills();
   }
   onClose() {
     this.contentEl.empty();
@@ -1528,8 +1567,8 @@ function parseGitHubRepository(sourceUrl) {
     return void 0;
   }
 }
-function deriveSkillBundles(skills, bundleNames) {
-  var _a;
+function deriveSkillBundles(skills, bundleMetadata) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
   const grouped = /* @__PURE__ */ new Map();
   for (const skill of skills) {
     const source = getSkillSourceIdentity(skill.source);
@@ -1541,12 +1580,18 @@ function deriveSkillBundles(skills, bundleNames) {
       grouped.set(source.id, {
         ...source,
         sourceType: skill.source.type,
-        name: ((_a = bundleNames[source.id]) == null ? void 0 : _a.trim()) || source.defaultName,
+        name: ((_b = (_a = bundleMetadata[source.id]) == null ? void 0 : _a.name) == null ? void 0 : _b.trim()) || source.defaultName,
+        description: (_e = (_d = (_c = bundleMetadata[source.id]) == null ? void 0 : _c.description) == null ? void 0 : _d.trim()) != null ? _e : "",
+        color: (_f = bundleMetadata[source.id]) == null ? void 0 : _f.color,
         skills: [skill]
       });
     }
   }
-  return [...grouped.values()].filter((bundle) => bundle.skills.length >= 2).sort((left, right) => left.name.localeCompare(right.name));
+  for (const bundle of grouped.values()) {
+    const excludedSkillIds = new Set((_h = (_g = bundleMetadata[bundle.id]) == null ? void 0 : _g.excludedSkillIds) != null ? _h : []);
+    bundle.skills = bundle.skills.filter((skill) => !excludedSkillIds.has(skill.id));
+  }
+  return [...grouped.values()].filter((bundle) => bundle.skills.length >= 2 || bundle.skills.length === 1 && Boolean(bundleMetadata[bundle.id])).sort((left, right) => left.name.localeCompare(right.name));
 }
 function getSkillSourceIdentity(source) {
   if (source.type === "github" && source.url) {
@@ -1602,6 +1647,7 @@ function getSourceName(target) {
 // src/ui/SkillHubView.ts
 var VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
 var SKILL_HUB_ICON_ID = "banshan-skillhub";
+var FOLDER_DRAG_TYPE = "application/x-skillhub-folder-id";
 var SkillHubView = class extends import_obsidian3.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -1689,7 +1735,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     container.empty();
     const visibleSkills = this.getVisibleSkills();
     const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
-    const bundles = deriveSkillBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleNames);
+    const bundles = deriveSkillBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleMetadata);
     const bundledSkillIds = new Set(bundles.flatMap((bundle) => bundle.skills.map((skill) => skill.id)));
     const query = this.filterQuery.trim().toLocaleLowerCase();
     const visibleBundles = bundles.map((bundle) => ({
@@ -1713,29 +1759,63 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     }
     this.renderFolderBoard(container, visibleBundles, collections);
   }
-  renderCard(grid, skill) {
+  renderCard(grid, skill, collection) {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
     if (this.selectMode) this.configureSelectableBlock(card, selected, () => this.toggleSkillSelection(skill.id));
-    card.draggable = this.isCustomSort() || this.hasCollections();
+    card.draggable = Boolean(collection) || this.isCustomSort() || this.hasCollections();
     if (card.draggable) {
       card.addClass("is-draggable");
       card.addEventListener("dragstart", (event) => {
-        var _a, _b, _c;
-        (_a = event.dataTransfer) == null ? void 0 : _a.setData("text/plain", skill.id);
-        (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-skill-id", skill.id);
-        (_c = event.dataTransfer) == null ? void 0 : _c.setDragImage(card, 20, 20);
+        var _a, _b, _c, _d, _e;
+        if (collection) {
+          this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
+          (_a = event.dataTransfer) == null ? void 0 : _a.setData("application/x-skillhub-collection-skill-id", skill.id);
+          (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-collection-id", collection.id);
+        }
+        (_c = event.dataTransfer) == null ? void 0 : _c.setData("text/plain", skill.id);
+        (_d = event.dataTransfer) == null ? void 0 : _d.setData("application/x-skillhub-skill-id", skill.id);
+        (_e = event.dataTransfer) == null ? void 0 : _e.setDragImage(card, 20, 20);
       });
-      if (this.isCustomSort()) {
+      if (collection || this.isCustomSort()) {
         card.addEventListener("dragover", (event) => {
           event.preventDefault();
+          if (collection) event.stopPropagation();
+          card.addClass("is-drop-target");
           if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
         });
+        card.addEventListener("dragleave", () => card.removeClass("is-drop-target"));
         card.addEventListener("drop", (event) => {
-          var _a, _b;
+          var _a, _b, _c, _d, _e;
           event.preventDefault();
-          const draggedSkillId = ((_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-skill-id")) || ((_b = event.dataTransfer) == null ? void 0 : _b.getData("text/plain"));
+          if (collection) event.stopPropagation();
+          card.removeClass("is-drop-target");
+          if (collection) {
+            const draggedCollectionId = (_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-collection-id");
+            const draggedCollectionSkillId = (_b = event.dataTransfer) == null ? void 0 : _b.getData("application/x-skillhub-collection-skill-id");
+            if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
+              this.markCollectionDragHandled();
+              void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(card, event));
+              return;
+            }
+            const droppedSkillId = (_c = event.dataTransfer) == null ? void 0 : _c.getData("application/x-skillhub-skill-id");
+            if (droppedSkillId) {
+              this.markCollectionDragHandled();
+              void this.handleCollectionDrop(droppedSkillId, collection.id);
+            }
+            return;
+          }
+          const draggedSkillId = ((_d = event.dataTransfer) == null ? void 0 : _d.getData("application/x-skillhub-skill-id")) || ((_e = event.dataTransfer) == null ? void 0 : _e.getData("text/plain"));
           if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
+        });
+      }
+      if (collection) {
+        card.addEventListener("dragend", () => {
+          const pendingCollectionDrag = this.pendingCollectionDrag;
+          if ((pendingCollectionDrag == null ? void 0 : pendingCollectionDrag.collectionId) === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
+            void this.removeSkillFromCollection(skill.id, collection.id);
+          }
+          this.pendingCollectionDrag = void 0;
         });
       }
     }
@@ -1768,9 +1848,12 @@ var SkillHubView = class extends import_obsidian3.ItemView {
         render: () => this.renderCollectionFolder(board, collection)
       }))
     ];
+    const orderIndex = new Map(this.plugin.registry.data.folderOrder.map((id, index) => [id, index]));
     folders.sort((left, right) => {
+      var _a, _b;
       const pinOrder = Number(this.isFolderPinned(right.id)) - Number(this.isFolderPinned(left.id));
-      return pinOrder || left.name.localeCompare(right.name);
+      const customOrder = ((_a = orderIndex.get(left.id)) != null ? _a : Number.MAX_SAFE_INTEGER) - ((_b = orderIndex.get(right.id)) != null ? _b : Number.MAX_SAFE_INTEGER);
+      return pinOrder || customOrder || left.name.localeCompare(right.name);
     });
     for (const folder of folders) folder.render();
   }
@@ -1792,11 +1875,14 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       }
     });
     folder.addClass("is-bundle");
+    if (bundle.color) folder.style.setProperty("--skillhub-folder-color", bundle.color);
     if (this.expandedFolderId !== bundle.id) return;
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
+    if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
     header.createEl("strong", { text: bundle.name });
     header.createSpan({ text: bundle.sourceLabel });
+    if (bundle.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: bundle.description });
     const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
     for (const skill of visibleSkills) this.renderCard(grid, skill);
   }
@@ -1829,12 +1915,12 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     header.createEl("strong", { text: collection.name });
     header.createSpan({ text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}` });
     if (collection.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: collection.description });
-    const members = expansion.createDiv({ cls: "skillhub-collection-members" });
     const memberSkills = this.getCollectionSkills(collection);
     if (memberSkills.length === 0) {
-      members.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
+      expansion.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
     } else {
-      for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
+      const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
+      for (const skill of memberSkills) this.renderCard(grid, skill, collection);
     }
   }
   createFolderTile(board, options) {
@@ -1843,10 +1929,37 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     folder.setAttribute("role", "button");
     folder.setAttribute("tabindex", "0");
     folder.setAttribute("aria-expanded", expanded ? "true" : "false");
-    folder.setAttribute("aria-label", `${options.title}, ${options.count} skills`);
     if (this.selectMode) {
       this.configureSelectableBlock(folder, options.selected, options.onSelect);
     } else {
+      folder.draggable = true;
+      folder.addClass("is-draggable");
+      folder.addEventListener("dragstart", (event) => {
+        var _a, _b;
+        if (this.isInteractiveSelectionTarget(event.target)) {
+          event.preventDefault();
+          return;
+        }
+        (_a = event.dataTransfer) == null ? void 0 : _a.setData(FOLDER_DRAG_TYPE, options.id);
+        (_b = event.dataTransfer) == null ? void 0 : _b.setDragImage(folder, 20, 20);
+      });
+      folder.addEventListener("dragover", (event) => {
+        if (!this.hasDataTransferType(event, FOLDER_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        folder.addClass("is-folder-drop-target");
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      });
+      folder.addEventListener("dragleave", () => folder.removeClass("is-folder-drop-target"));
+      folder.addEventListener("drop", (event) => {
+        var _a;
+        const draggedFolderId = (_a = event.dataTransfer) == null ? void 0 : _a.getData(FOLDER_DRAG_TYPE);
+        if (!draggedFolderId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        folder.removeClass("is-folder-drop-target");
+        void this.reorderFolder(draggedFolderId, options.id, this.shouldDropAfter(folder, event));
+      });
       folder.addEventListener("click", (event) => {
         if (this.isInteractiveSelectionTarget(event.target)) return;
         options.onToggle();
@@ -1866,14 +1979,19 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     papers.createSpan({ cls: "skillhub-folder__paper skillhub-folder__paper--3" });
     shape.createDiv({ cls: "skillhub-folder__front" });
     const meta = folder.createDiv({ cls: "skillhub-folder__meta" });
-    meta.createSpan({ cls: "skillhub-folder__title", text: options.title });
-    meta.createSpan({ cls: "skillhub-folder__count", text: `${options.count} skill${options.count === 1 ? "" : "s"}` });
+    const titleEl = meta.createSpan({ cls: "skillhub-folder__title", text: options.title });
+    const countEl = meta.createSpan({ cls: "skillhub-folder__count", text: `${options.count} skill${options.count === 1 ? "" : "s"}` });
+    const labelId = `skillhub-folder-${encodeURIComponent(options.id)}`;
+    titleEl.id = `${labelId}-title`;
+    countEl.id = `${labelId}-count`;
+    folder.setAttribute("aria-labelledby", `${titleEl.id} ${countEl.id}`);
     const actions = folder.createDiv({ cls: "skillhub-folder-actions" });
     options.renderActions(actions);
     return folder;
   }
   configureCollectionDropTarget(element, collectionId) {
     element.addEventListener("dragover", (event) => {
+      if (!this.hasDataTransferType(event, "application/x-skillhub-skill-id")) return;
       event.preventDefault();
       element.addClass("is-drop-target");
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
@@ -1881,6 +1999,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     element.addEventListener("dragleave", () => element.removeClass("is-drop-target"));
     element.addEventListener("drop", (event) => {
       var _a, _b;
+      if (!this.hasDataTransferType(event, "application/x-skillhub-skill-id")) return;
       event.preventDefault();
       element.removeClass("is-drop-target");
       const skillId = ((_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-skill-id")) || ((_b = event.dataTransfer) == null ? void 0 : _b.getData("text/plain"));
@@ -1888,55 +2007,6 @@ var SkillHubView = class extends import_obsidian3.ItemView {
         this.markCollectionDragHandled();
         void this.handleCollectionDrop(skillId, collectionId);
       }
-    });
-  }
-  renderCollectionSkillBlock(members, collection, skill) {
-    const block = members.createEl("button", {
-      cls: "skillhub-collection-skill-block",
-      text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`,
-      attr: { "aria-label": `Reorder ${skill.nickname}` }
-    });
-    block.draggable = true;
-    block.addEventListener("dragstart", (event) => {
-      var _a, _b, _c, _d, _e;
-      this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
-      (_a = event.dataTransfer) == null ? void 0 : _a.setData("text/plain", skill.id);
-      (_b = event.dataTransfer) == null ? void 0 : _b.setData("application/x-skillhub-skill-id", skill.id);
-      (_c = event.dataTransfer) == null ? void 0 : _c.setData("application/x-skillhub-collection-skill-id", skill.id);
-      (_d = event.dataTransfer) == null ? void 0 : _d.setData("application/x-skillhub-collection-id", collection.id);
-      (_e = event.dataTransfer) == null ? void 0 : _e.setDragImage(block, 20, 20);
-    });
-    block.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      block.addClass("is-drop-target");
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    });
-    block.addEventListener("dragleave", () => block.removeClass("is-drop-target"));
-    block.addEventListener("drop", (event) => {
-      var _a, _b, _c, _d;
-      event.preventDefault();
-      event.stopPropagation();
-      block.removeClass("is-drop-target");
-      const draggedCollectionId = (_a = event.dataTransfer) == null ? void 0 : _a.getData("application/x-skillhub-collection-id");
-      const draggedCollectionSkillId = (_b = event.dataTransfer) == null ? void 0 : _b.getData("application/x-skillhub-collection-skill-id");
-      if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
-        this.markCollectionDragHandled();
-        void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(block, event));
-        return;
-      }
-      const skillId = ((_c = event.dataTransfer) == null ? void 0 : _c.getData("application/x-skillhub-skill-id")) || ((_d = event.dataTransfer) == null ? void 0 : _d.getData("text/plain"));
-      if (skillId) {
-        this.markCollectionDragHandled();
-        void this.handleCollectionDrop(skillId, collection.id);
-      }
-    });
-    block.addEventListener("dragend", () => {
-      const pendingCollectionDrag = this.pendingCollectionDrag;
-      if ((pendingCollectionDrag == null ? void 0 : pendingCollectionDrag.collectionId) === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
-        void this.removeSkillFromCollection(skill.id, collection.id);
-      }
-      this.pendingCollectionDrag = void 0;
     });
   }
   openDetailModal(skill) {
@@ -2001,8 +2071,20 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     new BundleDetailModal(this.app, bundle).open();
   }
   openBundleEditModal(bundle) {
-    new BundleEditModal(this.app, bundle, async (name) => {
-      this.plugin.registry.data.bundleNames[bundle.id] = name;
+    new BundleEditModal(this.app, bundle, async (values) => {
+      var _a;
+      const previous = this.plugin.registry.data.bundleMetadata[bundle.id];
+      const retainedSkillIds = new Set(values.skillIds);
+      const excludedSkillIds = new Set((_a = previous == null ? void 0 : previous.excludedSkillIds) != null ? _a : []);
+      for (const skill of bundle.skills) {
+        if (!retainedSkillIds.has(skill.id)) excludedSkillIds.add(skill.id);
+      }
+      this.plugin.registry.data.bundleMetadata[bundle.id] = {
+        name: values.name,
+        description: values.description,
+        color: values.color,
+        excludedSkillIds: [...excludedSkillIds]
+      };
       await this.plugin.saveSkillHubData();
       this.render();
     }).open();
@@ -2011,8 +2093,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     new BulkDeleteConfirmationModal(this.app, bundle.skills, async () => {
       try {
         await this.plugin.deleteSkills(bundle.skills);
-        delete this.plugin.registry.data.bundleNames[bundle.id];
+        delete this.plugin.registry.data.bundleMetadata[bundle.id];
         this.removeFolderPin(bundle.id);
+        this.removeFolderOrder(bundle.id);
         for (const skill of bundle.skills) this.selectedSkillIds.delete(skill.id);
         if (this.expandedFolderId === bundle.id) this.expandedFolderId = void 0;
         await this.plugin.saveSkillHubData();
@@ -2039,6 +2122,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.plugin.registry.deleteCollection(collection.id);
     const folderId = this.getCollectionFolderId(collection.id);
     this.removeFolderPin(folderId);
+    this.removeFolderOrder(folderId);
     if (this.expandedFolderId === folderId) this.expandedFolderId = void 0;
     this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", void 0, { collectionId: collection.id }));
     await this.plugin.saveSkillHubData();
@@ -2134,6 +2218,10 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   getCollectionFolderId(collectionId) {
     return `collection:${collectionId}`;
   }
+  hasDataTransferType(event, type) {
+    var _a, _b;
+    return Array.from((_b = (_a = event.dataTransfer) == null ? void 0 : _a.types) != null ? _b : []).includes(type);
+  }
   isFolderPinned(folderId) {
     return this.plugin.registry.data.pinnedFolderIds.includes(folderId);
   }
@@ -2148,6 +2236,29 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   removeFolderPin(folderId) {
     this.plugin.registry.data.pinnedFolderIds = this.plugin.registry.data.pinnedFolderIds.filter((id) => id !== folderId);
+  }
+  async reorderFolder(draggedFolderId, targetFolderId, afterTarget) {
+    if (draggedFolderId === targetFolderId) return;
+    const bundleIds = deriveSkillBundles(
+      Object.values(this.plugin.registry.data.skills),
+      this.plugin.registry.data.bundleMetadata
+    ).map((bundle) => bundle.id);
+    const collectionIds = Object.values(this.plugin.registry.data.collections).sort((left, right) => left.name.localeCompare(right.name)).map((collection) => this.getCollectionFolderId(collection.id));
+    const knownFolderIds = /* @__PURE__ */ new Set([...bundleIds, ...collectionIds]);
+    if (!knownFolderIds.has(draggedFolderId) || !knownFolderIds.has(targetFolderId)) return;
+    const orderedFolderIds = [
+      ...this.plugin.registry.data.folderOrder.filter((id) => knownFolderIds.has(id)),
+      ...[...bundleIds, ...collectionIds].filter((id) => !this.plugin.registry.data.folderOrder.includes(id))
+    ].filter((id) => id !== draggedFolderId);
+    const targetIndex = orderedFolderIds.indexOf(targetFolderId);
+    if (targetIndex === -1) return;
+    orderedFolderIds.splice(targetIndex + (afterTarget ? 1 : 0), 0, draggedFolderId);
+    this.plugin.registry.data.folderOrder = orderedFolderIds;
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+  removeFolderOrder(folderId) {
+    this.plugin.registry.data.folderOrder = this.plugin.registry.data.folderOrder.filter((id) => id !== folderId);
   }
   openBulkDelete() {
     const records = this.getSelectedSkills();
@@ -2215,7 +2326,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       },
       delete: async (collection) => {
         this.plugin.registry.deleteCollection(collection.id);
-        this.removeFolderPin(this.getCollectionFolderId(collection.id));
+        const folderId = this.getCollectionFolderId(collection.id);
+        this.removeFolderPin(folderId);
+        this.removeFolderOrder(folderId);
         this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", void 0, { collectionId: collection.id }));
         await this.plugin.saveSkillHubData();
         this.render();
@@ -2450,16 +2563,20 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     this.registry = new SkillRegistry(this.data);
   }
   async onload() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g;
     const saved = await this.loadData();
+    const legacyBundleMetadata = Object.fromEntries(
+      Object.entries((_a = saved == null ? void 0 : saved.bundleNames) != null ? _a : {}).map(([id, name]) => [id, { name }])
+    );
     this.data = {
       settings: { ...DEFAULT_SETTINGS, ...saved == null ? void 0 : saved.settings },
-      skills: (_a = saved == null ? void 0 : saved.skills) != null ? _a : {},
-      collections: (_b = saved == null ? void 0 : saved.collections) != null ? _b : {},
-      bundleNames: (_c = saved == null ? void 0 : saved.bundleNames) != null ? _c : {},
+      skills: (_b = saved == null ? void 0 : saved.skills) != null ? _b : {},
+      collections: (_c = saved == null ? void 0 : saved.collections) != null ? _c : {},
+      bundleMetadata: { ...legacyBundleMetadata, ...saved == null ? void 0 : saved.bundleMetadata },
       pinnedFolderIds: (_d = saved == null ? void 0 : saved.pinnedFolderIds) != null ? _d : [],
-      tagColors: collectTagColors({ skills: (_e = saved == null ? void 0 : saved.skills) != null ? _e : {}, tagColors: saved == null ? void 0 : saved.tagColors }),
-      events: (_f = saved == null ? void 0 : saved.events) != null ? _f : []
+      folderOrder: (_e = saved == null ? void 0 : saved.folderOrder) != null ? _e : [],
+      tagColors: collectTagColors({ skills: (_f = saved == null ? void 0 : saved.skills) != null ? _f : {}, tagColors: saved == null ? void 0 : saved.tagColors }),
+      events: (_g = saved == null ? void 0 : saved.events) != null ? _g : []
     };
     this.registry = new SkillRegistry(this.data);
     (0, import_obsidian4.addIcon)(SKILL_HUB_ICON_ID, SKILL_HUB_ICON_SVG);

@@ -461,6 +461,7 @@ export class BundleDetailModal extends Modal {
 
   onOpen(): void {
     this.setTitle(this.bundle.name);
+    this.addDetail("Description", this.bundle.description || "No description provided.");
     this.addDetail("Source type", this.bundle.sourceType === "npx" ? "npx" : this.bundle.sourceType[0].toLocaleUpperCase() + this.bundle.sourceType.slice(1));
     this.addDetail("Source", this.bundle.sourceValue);
     this.addDetail("Skills", this.bundle.skills.map((skill) => skill.nickname).join(", "));
@@ -482,7 +483,7 @@ export class BundleEditModal extends Modal {
   constructor(
     app: Modal["app"],
     private readonly bundle: SkillBundle,
-    private readonly onSubmit: SubmitHandler<string>
+    private readonly onSubmit: SubmitHandler<BundleEditValues>
   ) {
     super(app);
   }
@@ -490,18 +491,59 @@ export class BundleEditModal extends Modal {
   onOpen(): void {
     this.setTitle("Edit bundle");
     let name = this.bundle.name;
+    let description = this.bundle.description;
+    let color = this.bundle.color ?? "#fbc548";
+    let skillIds = this.bundle.skills.map((skill) => skill.id);
     new Setting(this.contentEl).setName("Name").addText((text) => text.setValue(name).onChange((value) => { name = value; }));
+    new Setting(this.contentEl).setName("Description").addText((text) => text.setValue(description).onChange((value) => { description = value; }));
+    new Setting(this.contentEl).setName("Color").addColorPicker((picker) => picker.setValue(color).onChange((value) => { color = value; }));
+    const skillsEl = this.contentEl.createDiv({ cls: "skillhub-collection-edit-skills" });
+
+    const renderSkills = (): void => {
+      skillsEl.empty();
+      skillsEl.createEl("h3", { text: "Skills" });
+      const visibleSkills = this.bundle.skills.filter((skill) => skillIds.includes(skill.id));
+      if (visibleSkills.length === 0) {
+        skillsEl.createSpan({ cls: "skillhub-collection-empty", text: "No skills in this bundle." });
+        return;
+      }
+      for (const skill of visibleSkills) {
+        const row = skillsEl.createDiv({ cls: "skillhub-collection-edit-skill-row" });
+        const removeButton = row.createEl("button", {
+          cls: "skillhub-collection-edit-skill",
+          attr: { "aria-label": `Remove ${skill.nickname}` }
+        });
+        removeButton.createSpan({
+          cls: "skillhub-collection-edit-skill-label",
+          text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`
+        });
+        removeButton.createSpan({ cls: "skillhub-collection-edit-skill-remove", text: "×", attr: { "aria-hidden": "true" } });
+        removeButton.addEventListener("click", () => {
+          skillIds = skillIds.filter((skillId) => skillId !== skill.id);
+          renderSkills();
+        });
+      }
+    };
+
     new Setting(this.contentEl).addButton((button) => button.setButtonText("Save").setCta().onClick(async () => {
       const nextName = name.trim();
       if (!nextName) return;
-      await this.onSubmit(nextName);
+      await this.onSubmit({ name: nextName, description: description.trim(), color, skillIds });
       this.close();
     }));
+    renderSkills();
   }
 
   onClose(): void {
     this.contentEl.empty();
   }
+}
+
+export interface BundleEditValues {
+  name: string;
+  description: string;
+  color: string;
+  skillIds: string[];
 }
 
 export class CollectionDetailModal extends Modal {

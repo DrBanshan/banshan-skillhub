@@ -45,6 +45,13 @@ export interface SkillCollection {
   color?: string;
 }
 
+export interface SkillBundleMetadata {
+  name?: string;
+  description?: string;
+  color?: string;
+  excludedSkillIds?: string[];
+}
+
 export interface SkillEvent {
   id: string;
   skillId?: string;
@@ -57,8 +64,9 @@ export interface SkillHubData {
   settings: SkillHubSettings;
   skills: Record<string, SkillRecord>;
   collections: Record<string, SkillCollection>;
-  bundleNames: Record<string, string>;
+  bundleMetadata: Record<string, SkillBundleMetadata>;
   pinnedFolderIds: string[];
+  folderOrder: string[];
   tagColors: Record<string, string>;
   events: SkillEvent[];
 }

@@ -111,15 +111,15 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-folder-actions");
     expect(css).toContain("bottom: 4.8em;");
     expect(css).toContain("button.skillhub-pin-button:hover");
+    expect(css).toContain(".skillhub-folder.is-folder-drop-target");
   });
 
-  it("styles collection skills as neutral reorderable blocks", async () => {
+  it("styles collection skill cards as reorderable drop targets", async () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(css).toContain(".skillhub-collection-skill-block");
-    expect(css).toContain("background: var(--background-primary);");
-    expect(css).toContain("cursor: grab;");
-    expect(css).toContain(".skillhub-collection-skill-block.is-drop-target");
+    expect(css).not.toContain(".skillhub-collection-skill-block");
+    expect(css).toContain(".skillhub-card.is-draggable");
+    expect(css).toContain(".skillhub-card.is-drop-target");
     expect(css).toContain("border-color: var(--interactive-accent);");
   });
 

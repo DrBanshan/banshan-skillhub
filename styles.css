@@ -148,6 +148,11 @@ button.skillhub-toolbar-button:disabled {
   cursor: grabbing;
 }
 
+.skillhub-card.is-drop-target {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
 .skillhub-card.is-selectable,
 .skillhub-folder.is-selectable {
   cursor: pointer;
@@ -523,6 +528,19 @@ button.skillhub-card-action-button:active {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 
+.skillhub-folder.is-draggable {
+  cursor: grab;
+}
+
+.skillhub-folder.is-draggable:active {
+  cursor: grabbing;
+}
+
+.skillhub-folder.is-folder-drop-target {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+}
+
 .skillhub-folder-expansion {
   position: relative;
   grid-column: 1 / -1;
@@ -538,8 +556,7 @@ button.skillhub-card-action-button:active {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 24%, transparent);
 }
 
-.skillhub-folder-expansion-header,
-.skillhub-collection-members {
+.skillhub-folder-expansion-header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -559,6 +576,10 @@ button.skillhub-card-action-button:active {
 
 .skillhub-collection-description {
   margin: 0;
+}
+
+.skillhub-collection-description + .skillhub-folder-expanded-grid {
+  margin-top: 10px;
 }
 
 .skillhub-folder-expanded-grid {
@@ -602,35 +623,6 @@ button.skillhub-card-action-button:active {
   .skillhub-folder__paper {
     transition: none;
   }
-}
-
-button.skillhub-collection-skill-block {
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: grab;
-  font-size: var(--font-ui-small);
-  line-height: 1.2;
-  box-shadow: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
-}
-
-button.skillhub-collection-skill-block:hover,
-button.skillhub-collection-skill-block:focus-visible {
-  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
-}
-
-button.skillhub-collection-skill-block:active {
-  cursor: grabbing;
-}
-
-button.skillhub-collection-skill-block.is-drop-target {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
-  transform: translateY(-1px);
 }
 
 .skillhub-collection-edit-skills {

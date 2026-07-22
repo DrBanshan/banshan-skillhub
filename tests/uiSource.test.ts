@@ -75,7 +75,7 @@ describe("skill hub UI source", () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
 
     expect(source).toContain("addSortOption(sort, \"custom\", \"Custom order\")");
-    expect(source).toContain("card.draggable = this.isCustomSort()");
+    expect(source).toContain("card.draggable = Boolean(collection) || this.isCustomSort()");
     expect(source).toContain("dragstart");
     expect(source).toContain("drop");
     expect(source).toContain("reorderSkill");
@@ -94,6 +94,9 @@ describe("skill hub UI source", () => {
     expect(source).toContain("skillhub-folder-expansion");
     expect(source).toContain("toggleFolderPin");
     expect(source).toContain("pinnedFolderIds");
+    expect(source).toContain("folderOrder");
+    expect(source).toContain("reorderFolder");
+    expect(source).toContain("application/x-skillhub-folder-id");
     expect(source).toContain('"Pin", "pin"');
     expect(source).toContain("handleCollectionDrop");
     expect(source).toContain("updateSkillCollections");
@@ -103,6 +106,8 @@ describe("skill hub UI source", () => {
     expect(modalSource).toContain("CollectionDetailModal");
     expect(modalSource).toContain("BundleDetailModal");
     expect(modalSource).toContain("BundleEditModal");
+    expect(modalSource).toContain("BundleEditValues");
+    expect(source).toContain("bundleMetadata");
   });
 
   it("uses one custom tooltip for card actions", async () => {
@@ -113,14 +118,23 @@ describe("skill hub UI source", () => {
     expect(actionButtonMethod).not.toContain('"aria-label"');
   });
 
-  it("renders collection skills as reorderable workflow blocks", async () => {
+  it("renders collection skills as full reorderable skill cards", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
 
-    expect(source).toContain("renderCollectionSkillBlock");
-    expect(source).toContain("skillhub-collection-skill-block");
+    expect(source).toContain("this.renderCard(grid, skill, collection)");
+    expect(source).toContain("skillhub-chips");
+    expect(source).toContain("skillhub-card-actions");
     expect(source).toContain("application/x-skillhub-collection-skill-id");
     expect(source).toContain("reorderCollectionSkill");
     expect(source).toContain("collection.skillIds = reorderedSkillIds");
+  });
+
+  it("labels folders without triggering Obsidian's native aria-label tooltip", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const folderMethod = source.slice(source.indexOf("private createFolderTile"), source.indexOf("private configureCollectionDropTarget"));
+
+    expect(folderMethod).toContain("aria-labelledby");
+    expect(folderMethod).not.toContain('setAttribute("aria-label",');
   });
 
   it("removes collection skills by drag-out and from the collection edit modal", async () => {

@@ -7,6 +7,8 @@ describe("SkillRegistry", () => {
   it("initializes shared tag colors", () => {
     expect(createEmptySkillHubData().tagColors).toEqual({});
     expect(createEmptySkillHubData().pinnedFolderIds).toEqual([]);
+    expect(createEmptySkillHubData().folderOrder).toEqual([]);
+    expect(createEmptySkillHubData().bundleMetadata).toEqual({});
   });
 
   it("collects legacy per-skill tag colors into shared tag colors", () => {

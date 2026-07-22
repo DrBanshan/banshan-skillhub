@@ -22,6 +22,7 @@ import {
 
 export const VIEW_TYPE_SKILL_HUB = "banshan-skillhub-view";
 export const SKILL_HUB_ICON_ID = "banshan-skillhub";
+const FOLDER_DRAG_TYPE = "application/x-skillhub-folder-id";
 type CardActionIcon = "install" | "pin" | "details" | "edit" | "delete";
 type ToolbarIcon = "github" | "folder" | "node" | "collections" | "select" | "done" | "download";
 
@@ -128,7 +129,7 @@ export class SkillHubView extends ItemView {
     container.empty();
     const visibleSkills = this.getVisibleSkills();
     const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
-    const bundles = deriveSkillBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleNames);
+    const bundles = deriveSkillBundles(Object.values(this.plugin.registry.data.skills), this.plugin.registry.data.bundleMetadata);
     const bundledSkillIds = new Set(bundles.flatMap((bundle) => bundle.skills.map((skill) => skill.id)));
     const query = this.filterQuery.trim().toLocaleLowerCase();
     const visibleBundles = bundles.map((bundle) => ({
@@ -158,27 +159,61 @@ export class SkillHubView extends ItemView {
     this.renderFolderBoard(container, visibleBundles, collections);
   }
 
-  private renderCard(grid: HTMLElement, skill: SkillRecord): void {
+  private renderCard(grid: HTMLElement, skill: SkillRecord, collection?: SkillCollection): void {
     const selected = this.selectedSkillIds.has(skill.id);
     const card = grid.createDiv({ cls: `skillhub-card${selected ? " is-selected" : ""}` });
     if (this.selectMode) this.configureSelectableBlock(card, selected, () => this.toggleSkillSelection(skill.id));
-    card.draggable = this.isCustomSort() || this.hasCollections();
+    card.draggable = Boolean(collection) || this.isCustomSort() || this.hasCollections();
     if (card.draggable) {
       card.addClass("is-draggable");
       card.addEventListener("dragstart", (event) => {
+        if (collection) {
+          this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
+          event.dataTransfer?.setData("application/x-skillhub-collection-skill-id", skill.id);
+          event.dataTransfer?.setData("application/x-skillhub-collection-id", collection.id);
+        }
         event.dataTransfer?.setData("text/plain", skill.id);
         event.dataTransfer?.setData("application/x-skillhub-skill-id", skill.id);
         event.dataTransfer?.setDragImage(card, 20, 20);
       });
-      if (this.isCustomSort()) {
+      if (collection || this.isCustomSort()) {
         card.addEventListener("dragover", (event) => {
           event.preventDefault();
+          if (collection) event.stopPropagation();
+          card.addClass("is-drop-target");
           if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
         });
+        card.addEventListener("dragleave", () => card.removeClass("is-drop-target"));
         card.addEventListener("drop", (event) => {
           event.preventDefault();
+          if (collection) event.stopPropagation();
+          card.removeClass("is-drop-target");
+          if (collection) {
+            const draggedCollectionId = event.dataTransfer?.getData("application/x-skillhub-collection-id");
+            const draggedCollectionSkillId = event.dataTransfer?.getData("application/x-skillhub-collection-skill-id");
+            if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
+              this.markCollectionDragHandled();
+              void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(card, event));
+              return;
+            }
+            const droppedSkillId = event.dataTransfer?.getData("application/x-skillhub-skill-id");
+            if (droppedSkillId) {
+              this.markCollectionDragHandled();
+              void this.handleCollectionDrop(droppedSkillId, collection.id);
+            }
+            return;
+          }
           const draggedSkillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
           if (draggedSkillId) void this.reorderSkill(draggedSkillId, skill.id, this.shouldDropAfter(card, event));
+        });
+      }
+      if (collection) {
+        card.addEventListener("dragend", () => {
+          const pendingCollectionDrag = this.pendingCollectionDrag;
+          if (pendingCollectionDrag?.collectionId === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
+            void this.removeSkillFromCollection(skill.id, collection.id);
+          }
+          this.pendingCollectionDrag = undefined;
         });
       }
     }
@@ -217,9 +252,11 @@ export class SkillHubView extends ItemView {
         render: () => this.renderCollectionFolder(board, collection)
       }))
     ];
+    const orderIndex = new Map(this.plugin.registry.data.folderOrder.map((id, index) => [id, index]));
     folders.sort((left, right) => {
       const pinOrder = Number(this.isFolderPinned(right.id)) - Number(this.isFolderPinned(left.id));
-      return pinOrder || left.name.localeCompare(right.name);
+      const customOrder = (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+      return pinOrder || customOrder || left.name.localeCompare(right.name);
     });
     for (const folder of folders) folder.render();
   }
@@ -242,12 +279,15 @@ export class SkillHubView extends ItemView {
       }
     });
     folder.addClass("is-bundle");
+    if (bundle.color) folder.style.setProperty("--skillhub-folder-color", bundle.color);
 
     if (this.expandedFolderId !== bundle.id) return;
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
+    if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
     header.createEl("strong", { text: bundle.name });
     header.createSpan({ text: bundle.sourceLabel });
+    if (bundle.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: bundle.description });
     const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
     for (const skill of visibleSkills) this.renderCard(grid, skill);
   }
@@ -282,12 +322,12 @@ export class SkillHubView extends ItemView {
     header.createEl("strong", { text: collection.name });
     header.createSpan({ text: `${collection.skillIds.length} skill${collection.skillIds.length === 1 ? "" : "s"}` });
     if (collection.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: collection.description });
-    const members = expansion.createDiv({ cls: "skillhub-collection-members" });
     const memberSkills = this.getCollectionSkills(collection);
     if (memberSkills.length === 0) {
-      members.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
+      expansion.createSpan({ cls: "skillhub-collection-empty", text: "Drop skills here" });
     } else {
-      for (const skill of memberSkills) this.renderCollectionSkillBlock(members, collection, skill);
+      const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
+      for (const skill of memberSkills) this.renderCard(grid, skill, collection);
     }
 
   }
@@ -309,10 +349,35 @@ export class SkillHubView extends ItemView {
     folder.setAttribute("role", "button");
     folder.setAttribute("tabindex", "0");
     folder.setAttribute("aria-expanded", expanded ? "true" : "false");
-    folder.setAttribute("aria-label", `${options.title}, ${options.count} skills`);
     if (this.selectMode) {
       this.configureSelectableBlock(folder, options.selected, options.onSelect);
     } else {
+      folder.draggable = true;
+      folder.addClass("is-draggable");
+      folder.addEventListener("dragstart", (event) => {
+        if (this.isInteractiveSelectionTarget(event.target)) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer?.setData(FOLDER_DRAG_TYPE, options.id);
+        event.dataTransfer?.setDragImage(folder, 20, 20);
+      });
+      folder.addEventListener("dragover", (event) => {
+        if (!this.hasDataTransferType(event, FOLDER_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        folder.addClass("is-folder-drop-target");
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      });
+      folder.addEventListener("dragleave", () => folder.removeClass("is-folder-drop-target"));
+      folder.addEventListener("drop", (event) => {
+        const draggedFolderId = event.dataTransfer?.getData(FOLDER_DRAG_TYPE);
+        if (!draggedFolderId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        folder.removeClass("is-folder-drop-target");
+        void this.reorderFolder(draggedFolderId, options.id, this.shouldDropAfter(folder, event));
+      });
       folder.addEventListener("click", (event) => {
         if (this.isInteractiveSelectionTarget(event.target)) return;
         options.onToggle();
@@ -333,8 +398,12 @@ export class SkillHubView extends ItemView {
     papers.createSpan({ cls: "skillhub-folder__paper skillhub-folder__paper--3" });
     shape.createDiv({ cls: "skillhub-folder__front" });
     const meta = folder.createDiv({ cls: "skillhub-folder__meta" });
-    meta.createSpan({ cls: "skillhub-folder__title", text: options.title });
-    meta.createSpan({ cls: "skillhub-folder__count", text: `${options.count} skill${options.count === 1 ? "" : "s"}` });
+    const titleEl = meta.createSpan({ cls: "skillhub-folder__title", text: options.title });
+    const countEl = meta.createSpan({ cls: "skillhub-folder__count", text: `${options.count} skill${options.count === 1 ? "" : "s"}` });
+    const labelId = `skillhub-folder-${encodeURIComponent(options.id)}`;
+    titleEl.id = `${labelId}-title`;
+    countEl.id = `${labelId}-count`;
+    folder.setAttribute("aria-labelledby", `${titleEl.id} ${countEl.id}`);
     const actions = folder.createDiv({ cls: "skillhub-folder-actions" });
     options.renderActions(actions);
     return folder;
@@ -342,12 +411,14 @@ export class SkillHubView extends ItemView {
 
   private configureCollectionDropTarget(element: HTMLElement, collectionId: string): void {
     element.addEventListener("dragover", (event) => {
+      if (!this.hasDataTransferType(event, "application/x-skillhub-skill-id")) return;
       event.preventDefault();
       element.addClass("is-drop-target");
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     });
     element.addEventListener("dragleave", () => element.removeClass("is-drop-target"));
     element.addEventListener("drop", (event) => {
+      if (!this.hasDataTransferType(event, "application/x-skillhub-skill-id")) return;
       event.preventDefault();
       element.removeClass("is-drop-target");
       const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
@@ -355,55 +426,6 @@ export class SkillHubView extends ItemView {
         this.markCollectionDragHandled();
         void this.handleCollectionDrop(skillId, collectionId);
       }
-    });
-  }
-
-  private renderCollectionSkillBlock(members: HTMLElement, collection: SkillCollection, skill: SkillRecord): void {
-    const block = members.createEl("button", {
-      cls: "skillhub-collection-skill-block",
-      text: `${skill.emoji ? `${skill.emoji} ` : ""}${skill.nickname}`,
-      attr: { "aria-label": `Reorder ${skill.nickname}` }
-    });
-    block.draggable = true;
-    block.addEventListener("dragstart", (event) => {
-      this.pendingCollectionDrag = { collectionId: collection.id, skillId: skill.id, handled: false };
-      event.dataTransfer?.setData("text/plain", skill.id);
-      event.dataTransfer?.setData("application/x-skillhub-skill-id", skill.id);
-      event.dataTransfer?.setData("application/x-skillhub-collection-skill-id", skill.id);
-      event.dataTransfer?.setData("application/x-skillhub-collection-id", collection.id);
-      event.dataTransfer?.setDragImage(block, 20, 20);
-    });
-    block.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      block.addClass("is-drop-target");
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    });
-    block.addEventListener("dragleave", () => block.removeClass("is-drop-target"));
-    block.addEventListener("drop", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      block.removeClass("is-drop-target");
-      const draggedCollectionId = event.dataTransfer?.getData("application/x-skillhub-collection-id");
-      const draggedCollectionSkillId = event.dataTransfer?.getData("application/x-skillhub-collection-skill-id");
-      if (draggedCollectionId === collection.id && draggedCollectionSkillId) {
-        this.markCollectionDragHandled();
-        void this.reorderCollectionSkill(collection.id, draggedCollectionSkillId, skill.id, this.shouldDropAfter(block, event));
-        return;
-      }
-
-      const skillId = event.dataTransfer?.getData("application/x-skillhub-skill-id") || event.dataTransfer?.getData("text/plain");
-      if (skillId) {
-        this.markCollectionDragHandled();
-        void this.handleCollectionDrop(skillId, collection.id);
-      }
-    });
-    block.addEventListener("dragend", () => {
-      const pendingCollectionDrag = this.pendingCollectionDrag;
-      if (pendingCollectionDrag?.collectionId === collection.id && pendingCollectionDrag.skillId === skill.id && !pendingCollectionDrag.handled) {
-        void this.removeSkillFromCollection(skill.id, collection.id);
-      }
-      this.pendingCollectionDrag = undefined;
     });
   }
 
@@ -478,8 +500,19 @@ export class SkillHubView extends ItemView {
   }
 
   private openBundleEditModal(bundle: SkillBundle): void {
-    new BundleEditModal(this.app, bundle, async (name) => {
-      this.plugin.registry.data.bundleNames[bundle.id] = name;
+    new BundleEditModal(this.app, bundle, async (values) => {
+      const previous = this.plugin.registry.data.bundleMetadata[bundle.id];
+      const retainedSkillIds = new Set(values.skillIds);
+      const excludedSkillIds = new Set(previous?.excludedSkillIds ?? []);
+      for (const skill of bundle.skills) {
+        if (!retainedSkillIds.has(skill.id)) excludedSkillIds.add(skill.id);
+      }
+      this.plugin.registry.data.bundleMetadata[bundle.id] = {
+        name: values.name,
+        description: values.description,
+        color: values.color,
+        excludedSkillIds: [...excludedSkillIds]
+      };
       await this.plugin.saveSkillHubData();
       this.render();
     }).open();
@@ -489,8 +522,9 @@ export class SkillHubView extends ItemView {
     new BulkDeleteConfirmationModal(this.app, bundle.skills, async () => {
       try {
         await this.plugin.deleteSkills(bundle.skills);
-        delete this.plugin.registry.data.bundleNames[bundle.id];
+        delete this.plugin.registry.data.bundleMetadata[bundle.id];
         this.removeFolderPin(bundle.id);
+        this.removeFolderOrder(bundle.id);
         for (const skill of bundle.skills) this.selectedSkillIds.delete(skill.id);
         if (this.expandedFolderId === bundle.id) this.expandedFolderId = undefined;
         await this.plugin.saveSkillHubData();
@@ -519,6 +553,7 @@ export class SkillHubView extends ItemView {
     this.plugin.registry.deleteCollection(collection.id);
     const folderId = this.getCollectionFolderId(collection.id);
     this.removeFolderPin(folderId);
+    this.removeFolderOrder(folderId);
     if (this.expandedFolderId === folderId) this.expandedFolderId = undefined;
     this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
     await this.plugin.saveSkillHubData();
@@ -632,6 +667,10 @@ export class SkillHubView extends ItemView {
     return `collection:${collectionId}`;
   }
 
+  private hasDataTransferType(event: DragEvent, type: string): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes(type);
+  }
+
   private isFolderPinned(folderId: string): boolean {
     return this.plugin.registry.data.pinnedFolderIds.includes(folderId);
   }
@@ -648,6 +687,33 @@ export class SkillHubView extends ItemView {
 
   private removeFolderPin(folderId: string): void {
     this.plugin.registry.data.pinnedFolderIds = this.plugin.registry.data.pinnedFolderIds.filter((id) => id !== folderId);
+  }
+
+  private async reorderFolder(draggedFolderId: string, targetFolderId: string, afterTarget: boolean): Promise<void> {
+    if (draggedFolderId === targetFolderId) return;
+    const bundleIds = deriveSkillBundles(
+      Object.values(this.plugin.registry.data.skills),
+      this.plugin.registry.data.bundleMetadata
+    ).map((bundle) => bundle.id);
+    const collectionIds = Object.values(this.plugin.registry.data.collections)
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((collection) => this.getCollectionFolderId(collection.id));
+    const knownFolderIds = new Set([...bundleIds, ...collectionIds]);
+    if (!knownFolderIds.has(draggedFolderId) || !knownFolderIds.has(targetFolderId)) return;
+    const orderedFolderIds = [
+      ...this.plugin.registry.data.folderOrder.filter((id) => knownFolderIds.has(id)),
+      ...[...bundleIds, ...collectionIds].filter((id) => !this.plugin.registry.data.folderOrder.includes(id))
+    ].filter((id) => id !== draggedFolderId);
+    const targetIndex = orderedFolderIds.indexOf(targetFolderId);
+    if (targetIndex === -1) return;
+    orderedFolderIds.splice(targetIndex + (afterTarget ? 1 : 0), 0, draggedFolderId);
+    this.plugin.registry.data.folderOrder = orderedFolderIds;
+    await this.plugin.saveSkillHubData();
+    this.render();
+  }
+
+  private removeFolderOrder(folderId: string): void {
+    this.plugin.registry.data.folderOrder = this.plugin.registry.data.folderOrder.filter((id) => id !== folderId);
   }
 
   private openBulkDelete(): void {
@@ -719,7 +785,9 @@ export class SkillHubView extends ItemView {
       },
       delete: async (collection) => {
         this.plugin.registry.deleteCollection(collection.id);
-        this.removeFolderPin(this.getCollectionFolderId(collection.id));
+        const folderId = this.getCollectionFolderId(collection.id);
+        this.removeFolderPin(folderId);
+        this.removeFolderOrder(folderId);
         this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
         await this.plugin.saveSkillHubData();
         this.render();

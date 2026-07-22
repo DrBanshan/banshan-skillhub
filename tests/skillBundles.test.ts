@@ -86,6 +86,18 @@ describe("deriveSkillBundles", () => {
       createSkill("two", { type: "github", url: "https://github.com/acme/skills" })
     ];
 
-    expect(deriveSkillBundles(skills, { "github:acme/skills": "Research suite" })[0]?.name).toBe("Research suite");
+    expect(deriveSkillBundles(skills, {
+      "github:acme/skills": { name: "Research suite", description: "Research workflow", color: "#123456" }
+    })[0]).toMatchObject({ name: "Research suite", description: "Research workflow", color: "#123456" });
+  });
+
+  it("excludes skills removed through bundle editing", () => {
+    const source: SkillSource = { type: "local", path: "/Users/me/agent-library" };
+    const bundle = deriveSkillBundles(
+      [createSkill("one", source), createSkill("two", source)],
+      { "local:/Users/me/agent-library": { excludedSkillIds: ["two"] } }
+    )[0];
+
+    expect(bundle.skills.map((skill) => skill.id)).toEqual(["one"]);
   });
 });

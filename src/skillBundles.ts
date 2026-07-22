@@ -1,4 +1,4 @@
-import type { SkillRecord, SkillSource } from "./types";
+import type { SkillBundleMetadata, SkillRecord, SkillSource } from "./types";
 
 export interface GitHubRepositoryIdentity {
   id: string;
@@ -17,6 +17,8 @@ interface SkillSourceIdentity {
 export interface SkillBundle extends SkillSourceIdentity {
   sourceType: SkillSource["type"];
   name: string;
+  description: string;
+  color?: string;
   skills: SkillRecord[];
 }
 
@@ -40,7 +42,7 @@ export function parseGitHubRepository(sourceUrl: string): GitHubRepositoryIdenti
   }
 }
 
-export function deriveSkillBundles(skills: SkillRecord[], bundleNames: Record<string, string>): SkillBundle[] {
+export function deriveSkillBundles(skills: SkillRecord[], bundleMetadata: Record<string, SkillBundleMetadata>): SkillBundle[] {
   const grouped = new Map<string, SkillBundle>();
   for (const skill of skills) {
     const source = getSkillSourceIdentity(skill.source);
@@ -52,13 +54,19 @@ export function deriveSkillBundles(skills: SkillRecord[], bundleNames: Record<st
       grouped.set(source.id, {
         ...source,
         sourceType: skill.source.type,
-        name: bundleNames[source.id]?.trim() || source.defaultName,
+        name: bundleMetadata[source.id]?.name?.trim() || source.defaultName,
+        description: bundleMetadata[source.id]?.description?.trim() ?? "",
+        color: bundleMetadata[source.id]?.color,
         skills: [skill]
       });
     }
   }
+  for (const bundle of grouped.values()) {
+    const excludedSkillIds = new Set(bundleMetadata[bundle.id]?.excludedSkillIds ?? []);
+    bundle.skills = bundle.skills.filter((skill) => !excludedSkillIds.has(skill.id));
+  }
   return [...grouped.values()]
-    .filter((bundle) => bundle.skills.length >= 2)
+    .filter((bundle) => bundle.skills.length >= 2 || (bundle.skills.length === 1 && Boolean(bundleMetadata[bundle.id])))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 

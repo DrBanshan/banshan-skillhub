@@ -35,13 +35,17 @@ export default class SkillHubPlugin extends Plugin {
   registry = new SkillRegistry(this.data);
 
   async onload(): Promise<void> {
-    const saved = (await this.loadData()) as Partial<SkillHubData> | null;
+    const saved = (await this.loadData()) as (Partial<SkillHubData> & { bundleNames?: Record<string, string> }) | null;
+    const legacyBundleMetadata = Object.fromEntries(
+      Object.entries(saved?.bundleNames ?? {}).map(([id, name]) => [id, { name }])
+    );
     this.data = {
       settings: { ...DEFAULT_SETTINGS, ...saved?.settings },
       skills: saved?.skills ?? {},
       collections: saved?.collections ?? {},
-      bundleNames: saved?.bundleNames ?? {},
+      bundleMetadata: { ...legacyBundleMetadata, ...saved?.bundleMetadata },
       pinnedFolderIds: saved?.pinnedFolderIds ?? [],
+      folderOrder: saved?.folderOrder ?? [],
       tagColors: collectTagColors({ skills: saved?.skills ?? {}, tagColors: saved?.tagColors }),
       events: saved?.events ?? []
     };
