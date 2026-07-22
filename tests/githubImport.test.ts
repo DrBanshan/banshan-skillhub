@@ -24,6 +24,7 @@ describe("parseGitHubSkillUrl", () => {
     expect(parseGitHubSkillUrl("https://github.com/owner/repo")).toEqual({
       owner: "owner",
       repo: "repo",
+      rootPath: "",
       skillsPath: "skills"
     });
   });
@@ -33,6 +34,7 @@ describe("parseGitHubSkillUrl", () => {
       owner: "owner",
       repo: "repo",
       ref: "main",
+      rootPath: "packages/demo",
       skillsPath: "packages/demo/skills"
     });
   });
@@ -46,6 +48,7 @@ describe("parseGitHubSkillUrl", () => {
       owner: "owner",
       repo: "repo",
       ref: "feature/x",
+      rootPath: "packages/demo",
       skillsPath: "packages/demo/skills"
     });
   });
@@ -63,6 +66,7 @@ describe("parseGitHubSkillUrl", () => {
       owner: "owner",
       repo: "repo",
       ref: "feature/x",
+      rootPath: "packages/demo",
       skillsPath: "packages/demo/skills"
     });
     expect(checked).toContain("feature/x");
@@ -73,7 +77,7 @@ describe("parseGitHubSkillUrl", () => {
     await expect(resolveGitHubSkillUrl(
       `https://github.com/owner/repo/tree/${sha}/packages/demo`,
       async () => { throw new Error("ref lookup should not run"); }
-    )).resolves.toEqual({ owner: "owner", repo: "repo", ref: sha, skillsPath: "packages/demo/skills" });
+    )).resolves.toEqual({ owner: "owner", repo: "repo", ref: sha, rootPath: "packages/demo", skillsPath: "packages/demo/skills" });
   });
 
   it("bounds ref probes for long tree URLs", async () => {
@@ -113,6 +117,7 @@ describe("parseGitHubSkillUrl", () => {
       owner: "owner",
       repo: "repo",
       ref: "main",
+      rootPath: "skills",
       skillsPath: "skills"
     });
   });
@@ -162,6 +167,72 @@ describe("GitHubSkillDownloader", () => {
       downloader.listSkillFolders({ owner: "owner", repo: "repo", ref: "main", skillsPath: "packages/demo/skills" })
     ).resolves.toEqual(["writer"]);
     expect(requests).toEqual(["/repos/owner/repo/contents/packages/demo/skills?ref=main"]);
+  });
+
+  it("lists a root SKILL.md together with folders from the child skills directory", async () => {
+    const requests: string[] = [];
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => {
+        requests.push(path);
+        return path.includes("/contents/skills")
+          ? { status: 200, data: [{ type: "dir", name: "writer", path: "skills/writer" }] }
+          : {
+            status: 200,
+            data: [
+              { type: "file", name: "SKILL.md", path: "SKILL.md", download_url: "https://files/root-skill" },
+              { type: "dir", name: "skills", path: "skills" }
+            ]
+          };
+      },
+      downloadFile: async () => 0
+    });
+
+    await expect(downloader.listSkillCandidates({ owner: "owner", repo: "repo", rootPath: "", skillsPath: "skills" })).resolves.toEqual([
+      { kind: "root", name: "repo", label: "repo (root SKILL.md)" },
+      { kind: "folder", name: "writer", label: "writer" }
+    ]);
+    expect(requests).toEqual([
+      "/repos/owner/repo/contents",
+      "/repos/owner/repo/contents/skills"
+    ]);
+  });
+
+  it("downloads only SKILL.md when the URL root is itself a skill", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloads: Array<{ url: string; path: string }> = [];
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({
+        status: 200,
+        data: [
+          { type: "file", name: "SKILL.md", path: "packages/reviewer/SKILL.md", download_url: "https://files/root-skill" },
+          { type: "file", name: "README.md", path: "packages/reviewer/README.md", download_url: "https://files/readme" }
+        ]
+      }),
+      downloadFile: async (url, path) => {
+        downloads.push({ url, path });
+        const content = "---\nname: Reviewer\ndescription: Reviews code\n---\n";
+        await writeFile(path, content, { encoding: "utf8", flush: true });
+        return Buffer.byteLength(content);
+      }
+    });
+    const location = {
+      owner: "owner",
+      repo: "repo",
+      ref: "main",
+      rootPath: "packages/reviewer",
+      skillsPath: "packages/reviewer/skills"
+    };
+    const candidates = await downloader.listSkillCandidates(location);
+
+    const result = await downloader.downloadSkillCandidate(location, candidates[0], destination);
+
+    expect(candidates).toEqual([{ kind: "root", name: "reviewer", label: "reviewer (root SKILL.md)" }]);
+    expect(downloads).toEqual([
+      { url: "https://files/root-skill", path: join(destination, "skills/reviewer/SKILL.md") }
+    ]);
+    expect(result.skills.map((skill) => skill.metadata.name)).toEqual(["Reviewer"]);
+    await expect(readFile(join(destination, "skills/reviewer/README.md"), "utf8")).rejects.toThrow();
   });
 
   it("downloads recursively only within the selected skill folder and discovers the staged skill", async () => {

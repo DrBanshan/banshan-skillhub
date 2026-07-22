@@ -311,8 +311,8 @@ var InvalidGitHubUrlError = class extends Error {
   }
 };
 var MissingSkillsFolderError = class extends Error {
-  constructor(skillsPath) {
-    super(`GitHub skills folder not found: ${skillsPath}`);
+  constructor(path) {
+    super(`GitHub skills folder or root SKILL.md not found: ${path || "/"}`);
     this.name = "MissingSkillsFolderError";
   }
 };
@@ -363,13 +363,14 @@ function parseGitHubSkillUrl(input, options = {}) {
   const [owner, rawRepo, ...remainder] = segments;
   const repo = rawRepo.endsWith(".git") ? rawRepo.slice(0, -4) : rawRepo;
   if (!owner || !repo) throw new InvalidGitHubUrlError(input);
-  if (remainder.length === 0) return { owner, repo, skillsPath: "skills" };
+  if (remainder.length === 0) return { owner, repo, rootPath: "", skillsPath: "skills" };
   if (remainder[0] !== "tree" || remainder.length < 2) throw new InvalidGitHubUrlError(input);
   const treeSegments = remainder.slice(1);
   const ref = resolveRef(treeSegments, options.knownRefs);
   const pathSegments = treeSegments.slice(ref.split("/").length);
-  const skillsPath = pathSegments.at(-1) === "skills" ? pathSegments.join("/") : [...pathSegments, "skills"].join("/");
-  return { owner, repo, ref, skillsPath };
+  const rootPath = pathSegments.join("/");
+  const skillsPath = pathSegments.at(-1) === "skills" ? rootPath : [...pathSegments, "skills"].join("/");
+  return { owner, repo, ref, rootPath, skillsPath };
 }
 async function resolveGitHubSkillUrl(input, refExists, options = {}) {
   var _a, _b, _c;
@@ -408,10 +409,46 @@ var GitHubSkillDownloader = class {
     const entries = await this.listContents(location, location.skillsPath);
     return entries.filter((entry) => entry.type === "dir").map((entry) => entry.name);
   }
+  async listSkillCandidates(location) {
+    var _a;
+    const rootPath = resolveRootPath(location);
+    const rootEntries = await this.listContents(location, rootPath);
+    const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
+    const hasRootSkill = rootEntries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === rootSkillPath);
+    const candidates = [];
+    if (hasRootSkill) {
+      const name = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
+      candidates.push({ kind: "root", name, label: `${name} (root SKILL.md)` });
+    }
+    if (rootPath === location.skillsPath) {
+      candidates.push(...rootEntries.filter((entry) => entry.type === "dir").map((entry) => ({ kind: "folder", name: entry.name, label: entry.name })));
+    } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === location.skillsPath)) {
+      const folders = await this.listSkillFolders(location);
+      candidates.push(...folders.map((name) => ({ kind: "folder", name, label: name })));
+    }
+    if (candidates.length === 0) throw new MissingSkillsFolderError(rootPath);
+    return candidates;
+  }
+  async downloadSkillCandidate(location, candidate, destination) {
+    if (candidate.kind === "folder") return this.downloadSkillFolder(location, candidate.name, destination);
+    return this.downloadRootSkill(location, destination);
+  }
   async downloadSkillFolder(location, folderName, destination) {
     if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
     const selectedPath = `${location.skillsPath}/${folderName}`;
     await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
+    return discoverSkills(destination);
+  }
+  async downloadRootSkill(location, destination) {
+    var _a;
+    const rootPath = resolveRootPath(location);
+    const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
+    const entries = await this.listContents(location, rootPath);
+    const entry = entries.find((item) => item.type === "file" && item.name === "SKILL.md" && item.path === rootSkillPath);
+    if (!entry) throw new MissingSkillsFolderError(rootPath);
+    const folderName = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
+    if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
+    await this.downloadFileEntry(entry, (0, import_path5.join)(destination, "skills", folderName, "SKILL.md"));
     return discoverSkills(destination);
   }
   async downloadContents(location, path, destination, selectedPath, depth) {
@@ -423,26 +460,30 @@ var GitHubSkillDownloader = class {
         await this.downloadContents(location, entry.path, destination, selectedPath, depth + 1);
         continue;
       }
-      if (!entry.download_url) throw new GitHubImportLimitError(entry.path);
-      if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
-      if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
-        throw new GitHubImportLimitError(entry.path);
-      }
-      this.consumeRequest(entry.path);
-      this.files += 1;
       const stagedPath = (0, import_path5.join)(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
-      await (0, import_promises4.mkdir)((0, import_path5.dirname)(stagedPath), { recursive: true });
-      const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath, this.limits.maxBytes - this.bytes);
-      this.bytes += downloadedBytes;
-      if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
-        throw new GitHubImportLimitError(entry.path);
-      }
+      await this.downloadFileEntry(entry, stagedPath);
+    }
+  }
+  async downloadFileEntry(entry, stagedPath) {
+    if (!entry.download_url) throw new GitHubImportLimitError(entry.path);
+    if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
+    if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entry.path);
+    }
+    this.consumeRequest(entry.path);
+    this.files += 1;
+    await (0, import_promises4.mkdir)((0, import_path5.dirname)(stagedPath), { recursive: true });
+    const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath, this.limits.maxBytes - this.bytes);
+    this.bytes += downloadedBytes;
+    if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entry.path);
     }
   }
   async listContents(location, path) {
     this.consumeRequest(path);
     const query = location.ref ? `?ref=${encodeURIComponent(location.ref)}` : "";
-    const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}/contents/${path}${query}`);
+    const contentsPath = path ? `/contents/${path}` : "/contents";
+    const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}${contentsPath}${query}`);
     if (response.status === 404) throw new MissingSkillsFolderError(path);
     if (response.status !== 200) throw new Error(`GitHub contents request failed with status ${response.status}`);
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
@@ -452,6 +493,13 @@ var GitHubSkillDownloader = class {
     this.requestBudget.consume(path);
   }
 };
+function resolveRootPath(location) {
+  if (location.rootPath !== void 0) return location.rootPath;
+  return location.skillsPath === "skills" ? "" : location.skillsPath.replace(/\/skills$/, "");
+}
+function appendGitHubPath(path, name) {
+  return path ? `${path}/${name}` : name;
+}
 function isWithinPath(path, root) {
   const pathSegments = path.split("/");
   const rootSegments = root.split("/");
@@ -2681,14 +2729,17 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
           return writeBoundedGitHubResponse(response, destination, maxBytes);
         }
       }, {}, requestBudget);
-      const folders = await downloader.listSkillFolders(location);
-      if (folders.length === 0) throw new Error("No skill folders were found.");
-      new SkillSelectionModal(this.app, folders.map((folder) => ({ id: folder, label: folder, value: folder })), async (selected) => {
+      const candidates = await downloader.listSkillCandidates(location);
+      new SkillSelectionModal(this.app, candidates.map((candidate) => ({
+        id: `${candidate.kind}:${candidate.name}`,
+        label: candidate.label,
+        value: candidate
+      })), async (selected) => {
         let stagingPath;
         try {
           if (selected.length === 0) return;
           stagingPath = await (0, import_promises7.mkdtemp)((0, import_path8.join)(this.getVaultBasePath(), ".skillhub-github-import-"));
-          for (const folder of selected) await downloader.downloadSkillFolder(location, folder, stagingPath);
+          for (const candidate of selected) await downloader.downloadSkillCandidate(location, candidate, stagingPath);
           const discovered = await discoverSkills(stagingPath);
           this.showDiscoveryWarnings(discovered.warnings);
           await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);

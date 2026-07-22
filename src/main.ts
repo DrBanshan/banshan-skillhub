@@ -104,14 +104,17 @@ export default class SkillHubPlugin extends Plugin {
           return writeBoundedGitHubResponse(response, destination, maxBytes);
         }
       }, {}, requestBudget);
-      const folders = await downloader.listSkillFolders(location);
-      if (folders.length === 0) throw new Error("No skill folders were found.");
-      new SkillSelectionModal(this.app, folders.map((folder) => ({ id: folder, label: folder, value: folder })), async (selected) => {
+      const candidates = await downloader.listSkillCandidates(location);
+      new SkillSelectionModal(this.app, candidates.map((candidate) => ({
+        id: `${candidate.kind}:${candidate.name}`,
+        label: candidate.label,
+        value: candidate
+      })), async (selected) => {
         let stagingPath: string | undefined;
         try {
           if (selected.length === 0) return;
           stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
-          for (const folder of selected) await downloader.downloadSkillFolder(location, folder, stagingPath);
+          for (const candidate of selected) await downloader.downloadSkillCandidate(location, candidate, stagingPath);
           const discovered = await discoverSkills(stagingPath);
           this.showDiscoveryWarnings(discovered.warnings);
           await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
