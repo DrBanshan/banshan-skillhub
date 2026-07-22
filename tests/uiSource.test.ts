@@ -183,6 +183,16 @@ describe("skill hub UI source", () => {
     expect(source).toContain("this.addToolbarButton(toolbar, \"Install\", \"download\", () => this.installSelectedSkills())");
   });
 
+  it("clears skill and collection selections when select mode is finished", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const toggleMethod = source.slice(source.indexOf("private toggleSelectMode"), source.indexOf("private toggleBundleSelection"));
+
+    expect(source).toContain("() => this.toggleSelectMode()");
+    expect(toggleMethod).toContain("if (!this.selectMode)");
+    expect(toggleMethod).toContain("this.selectedSkillIds.clear()");
+    expect(toggleMethod).toContain("this.selectedCollectionIds.clear()");
+  });
+
   it("offers an install picker when nothing is selected", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
     const modalSource = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");

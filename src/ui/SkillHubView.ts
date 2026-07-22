@@ -91,10 +91,7 @@ export class SkillHubView extends ItemView {
     this.addToolbarButton(toolbar, "Local scan", "folder", () => this.openLocalScan());
     this.addToolbarButton(toolbar, "npx import", "node", () => this.openNpxImport());
     this.addToolbarButton(toolbar, "Collections", "collections", () => this.openCollectionManager());
-    this.addToolbarButton(toolbar, this.selectMode ? "Done" : "Select", this.selectMode ? "done" : "select", () => {
-      this.selectMode = !this.selectMode;
-      this.render();
-    });
+    this.addToolbarButton(toolbar, this.selectMode ? "Done" : "Select", this.selectMode ? "done" : "select", () => this.toggleSelectMode());
     this.addToolbarButton(toolbar, "Install", "download", () => this.installSelectedSkills());
 
     if (this.selectMode) {
@@ -675,6 +672,15 @@ export class SkillHubView extends ItemView {
 
   private toggleSkillSelection(skillId: string): void {
     this.selectedSkillIds.has(skillId) ? this.selectedSkillIds.delete(skillId) : this.selectedSkillIds.add(skillId);
+    this.render();
+  }
+
+  private toggleSelectMode(): void {
+    this.selectMode = !this.selectMode;
+    if (!this.selectMode) {
+      this.selectedSkillIds.clear();
+      this.selectedCollectionIds.clear();
+    }
     this.render();
   }
 

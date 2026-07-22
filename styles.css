@@ -158,14 +158,6 @@ button.skillhub-toolbar-button:disabled {
   cursor: pointer;
 }
 
-.skillhub-card.is-selected,
-.skillhub-folder.is-selected {
-  border-color: var(--interactive-accent);
-  box-shadow:
-    inset 0 0 0 1px var(--interactive-accent),
-    0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
-}
-
 .skillhub-card.is-selectable:hover,
 .skillhub-card.is-selectable:focus-visible,
 .skillhub-folder.is-selectable:hover,
@@ -175,6 +167,15 @@ button.skillhub-toolbar-button:disabled {
     inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 80%, transparent),
     0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
   outline: none;
+}
+
+.skillhub-card.is-selected,
+.skillhub-folder.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow:
+    inset 0 0 0 2px var(--interactive-accent),
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 65%, transparent),
+    0 0 30px 4px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
 }
 
 .skillhub-card p,
@@ -518,11 +519,6 @@ button.skillhub-card-action-button:active {
   pointer-events: auto;
 }
 
-.skillhub-folder.is-selected {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
-}
-
 .skillhub-folder.is-drop-target {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
@@ -556,8 +552,7 @@ button.skillhub-card-action-button:active {
 
 .skillhub-folder-expansion.is-bundle {
   --skillhub-folder-color: #fbc548;
-  border-color: var(--skillhub-folder-color);
-  background: var(--skillhub-folder-color);
+  --skillhub-collection-color: var(--skillhub-folder-color);
 }
 
 .skillhub-folder-expansion .skillhub-card:not(.is-selected):not(.is-drop-target) {

@@ -28,7 +28,9 @@ describe("skill card color styling", () => {
     expect(css).not.toContain(".skillhub-collection-select");
     expect(css).toContain(".skillhub-card.is-selected");
     expect(css).toContain(".skillhub-folder.is-selected");
-    expect(css).toContain("0 0 30px 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent)");
+    expect(css).toContain("inset 0 0 0 2px var(--interactive-accent)");
+    expect(css).toContain("0 0 0 3px color-mix(in srgb, var(--interactive-accent) 65%, transparent)");
+    expect(css).toContain("0 0 30px 4px color-mix(in srgb, var(--interactive-accent) 35%, transparent)");
     expect(css).toContain(".skillhub-card.is-selectable");
     expect(css).toContain(".skillhub-folder.is-selectable");
   });
@@ -115,7 +117,8 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-folder.is-folder-drop-after");
     expect(css).toContain(".skillhub-folder-expansion.is-bundle");
     expect(css).toContain("--skillhub-folder-color: #fbc548;");
-    expect(css).toContain("background: var(--skillhub-folder-color);");
+    expect(css).toContain("--skillhub-collection-color: var(--skillhub-folder-color);");
+    expect(css).toContain("background: color-mix(in srgb, var(--skillhub-collection-color, var(--interactive-accent)) 8%, var(--background-secondary));");
     expect(css).toContain(".skillhub-folder-expansion .skillhub-card:not(.is-selected):not(.is-drop-target)");
     expect(css).toContain("border: 1px solid var(--text-muted);");
   });
