@@ -102,6 +102,8 @@ describe("skill card color styling", () => {
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
     expect(css).toContain(".skillhub-folder-board");
+    expect(css).toContain(".skillhub-folder-board + .skillhub-grid");
+    expect(css).toContain("margin-top: 18px;");
     expect(css).toContain(".skillhub-folder");
     expect(css).toContain(".skillhub-folder__back");
     expect(css).toContain(".skillhub-folder__front");

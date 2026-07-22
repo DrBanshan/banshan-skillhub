@@ -341,6 +341,10 @@ button.skillhub-card-action-button:active {
   margin-top: 16px;
 }
 
+.skillhub-folder-board + .skillhub-grid {
+  margin-top: 18px;
+}
+
 .skillhub-folder {
   --skillhub-folder-color: #fbc548;
   --folder-back-1: color-mix(in srgb, var(--skillhub-folder-color) 78%, #fff);
