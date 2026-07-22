@@ -108,7 +108,11 @@ describe("skill hub UI source", () => {
     expect(source).toContain("updateSkillCollections");
     expect(source).toContain("openCollectionDetailModal");
     expect(source).toContain("openCollectionEditModal");
+    expect(source).toContain("openCollectionDeleteModal");
     expect(source).toContain("deleteCollection");
+    expect(modalSource).toContain("CollectionDeleteConfirmationModal");
+    expect(modalSource).toContain('this.setTitle("Delete collection")');
+    expect(modalSource).toContain("Skills in this collection will remain installed.");
     expect(modalSource).toContain("CollectionDetailModal");
     expect(modalSource).toContain("BundleDetailModal");
     expect(modalSource).toContain("BundleEditModal");

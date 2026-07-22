@@ -555,8 +555,13 @@ button.skillhub-card-action-button:active {
 }
 
 .skillhub-folder-expansion.is-bundle {
-  border-color: var(--skillhub-collection-color, var(--interactive-accent));
-  background: var(--skillhub-collection-color, var(--background-secondary));
+  --skillhub-folder-color: #fbc548;
+  border-color: var(--skillhub-folder-color);
+  background: var(--skillhub-folder-color);
+}
+
+.skillhub-folder-expansion .skillhub-card:not(.is-selected):not(.is-drop-target) {
+  border: 1px solid var(--text-muted);
 }
 
 .skillhub-folder-expansion.is-drop-target {

@@ -423,6 +423,31 @@ export class BulkDeleteConfirmationModal extends Modal {
   }
 }
 
+export class CollectionDeleteConfirmationModal extends Modal {
+  constructor(
+    app: Modal["app"],
+    private readonly collection: SkillCollection,
+    private readonly onConfirm: () => void | Promise<void>
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle("Delete collection");
+    this.contentEl.createEl("p", {
+      text: `Delete ${this.collection.name}? Skills in this collection will remain installed.`
+    });
+    new Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
+      await this.onConfirm();
+      this.close();
+    }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export class SkillDetailModal extends Modal {
   constructor(app: Modal["app"], private readonly skill: SkillRecord, private readonly collections: SkillCollection[]) {
     super(app);
@@ -690,9 +715,11 @@ export class CollectionManagerModal extends Modal {
             this.renderCollections();
           }).open();
         }))
-        .addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
-          await this.actions.delete(collection);
-          this.renderCollections();
+        .addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(() => {
+          new CollectionDeleteConfirmationModal(this.app, collection, async () => {
+            await this.actions.delete(collection);
+            this.renderCollections();
+          }).open();
         }));
     }
   }

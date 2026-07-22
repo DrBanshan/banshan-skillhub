@@ -1256,6 +1256,26 @@ var BulkDeleteConfirmationModal = class extends import_obsidian2.Modal {
     this.contentEl.empty();
   }
 };
+var CollectionDeleteConfirmationModal = class extends import_obsidian2.Modal {
+  constructor(app, collection, onConfirm) {
+    super(app);
+    this.collection = collection;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    this.setTitle("Delete collection");
+    this.contentEl.createEl("p", {
+      text: `Delete ${this.collection.name}? Skills in this collection will remain installed.`
+    });
+    new import_obsidian2.Setting(this.contentEl).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
+      await this.onConfirm();
+      this.close();
+    }));
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var SkillDetailModal = class extends import_obsidian2.Modal {
   constructor(app, skill, collections) {
     super(app);
@@ -1485,9 +1505,11 @@ var CollectionManagerModal = class extends import_obsidian2.Modal {
           await this.actions.update(collection, values);
           this.renderCollections();
         }).open();
-      })).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(async () => {
-        await this.actions.delete(collection);
-        this.renderCollections();
+      })).addButton((button) => setButtonWarning(button.setButtonText("Delete")).onClick(() => {
+        new CollectionDeleteConfirmationModal(this.app, collection, async () => {
+          await this.actions.delete(collection);
+          this.renderCollections();
+        }).open();
       }));
     }
   }
@@ -1900,7 +1922,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   }
   renderBundleExpansion(board, bundle, visibleSkills) {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
-    if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
+    if (bundle.color) expansion.style.setProperty("--skillhub-folder-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
     header.createEl("strong", { text: bundle.name });
     header.createSpan({ text: bundle.sourceLabel });
@@ -1924,7 +1946,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
         this.addCardActionButton(actions, this.isFolderPinned(folderId) ? "Unpin" : "Pin", "pin", () => void this.toggleFolderPin(folderId), this.isFolderPinned(folderId));
         this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
         this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
-        this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
+        this.addCardActionButton(actions, "Delete", "delete", () => this.openCollectionDeleteModal(collection));
       }
     });
     folder.addClass("is-collection");
@@ -2146,6 +2168,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       this.render();
     }, this.getCollectionSkills(collection)).open();
   }
+  openCollectionDeleteModal(collection) {
+    new CollectionDeleteConfirmationModal(this.app, collection, () => this.deleteCollection(collection)).open();
+  }
   async deleteCollection(collection) {
     this.plugin.registry.deleteCollection(collection.id);
     const folderId = this.getCollectionFolderId(collection.id);
@@ -2356,15 +2381,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
         await this.plugin.saveSkillHubData();
         this.render();
       },
-      delete: async (collection) => {
-        this.plugin.registry.deleteCollection(collection.id);
-        const folderId = this.getCollectionFolderId(collection.id);
-        this.removeFolderPin(folderId);
-        this.removeFolderOrder(folderId);
-        this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", void 0, { collectionId: collection.id }));
-        await this.plugin.saveSkillHubData();
-        this.render();
-      }
+      delete: (collection) => this.deleteCollection(collection)
     }).open();
   }
   getSelectedSkills() {

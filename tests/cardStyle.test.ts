@@ -114,7 +114,10 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-folder.is-folder-drop-before");
     expect(css).toContain(".skillhub-folder.is-folder-drop-after");
     expect(css).toContain(".skillhub-folder-expansion.is-bundle");
-    expect(css).toContain("background: var(--skillhub-collection-color, var(--background-secondary));");
+    expect(css).toContain("--skillhub-folder-color: #fbc548;");
+    expect(css).toContain("background: var(--skillhub-folder-color);");
+    expect(css).toContain(".skillhub-folder-expansion .skillhub-card:not(.is-selected):not(.is-drop-target)");
+    expect(css).toContain("border: 1px solid var(--text-muted);");
   });
 
   it("styles collection skill cards as reorderable drop targets", async () => {

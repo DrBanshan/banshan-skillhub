@@ -9,6 +9,7 @@ import {
   BundleEditModal,
   BulkCollectionMembershipModal,
   BulkDeleteConfirmationModal,
+  CollectionDeleteConfirmationModal,
   CollectionDetailModal,
   CollectionEditModal,
   CollectionManagerModal,
@@ -306,7 +307,7 @@ export class SkillHubView extends ItemView {
 
   private renderBundleExpansion(board: HTMLElement, bundle: SkillBundle, visibleSkills: SkillRecord[]): HTMLElement {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
-    if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
+    if (bundle.color) expansion.style.setProperty("--skillhub-folder-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
     header.createEl("strong", { text: bundle.name });
     header.createSpan({ text: bundle.sourceLabel });
@@ -331,7 +332,7 @@ export class SkillHubView extends ItemView {
         this.addCardActionButton(actions, this.isFolderPinned(folderId) ? "Unpin" : "Pin", "pin", () => void this.toggleFolderPin(folderId), this.isFolderPinned(folderId));
         this.addCardActionButton(actions, "Details", "details", () => this.openCollectionDetailModal(collection));
         this.addCardActionButton(actions, "Edit", "edit", () => this.openCollectionEditModal(collection));
-        this.addCardActionButton(actions, "Delete", "delete", () => void this.deleteCollection(collection));
+        this.addCardActionButton(actions, "Delete", "delete", () => this.openCollectionDeleteModal(collection));
       }
     });
     folder.addClass("is-collection");
@@ -577,6 +578,10 @@ export class SkillHubView extends ItemView {
     }, this.getCollectionSkills(collection)).open();
   }
 
+  private openCollectionDeleteModal(collection: SkillCollection): void {
+    new CollectionDeleteConfirmationModal(this.app, collection, () => this.deleteCollection(collection)).open();
+  }
+
   private async deleteCollection(collection: SkillCollection): Promise<void> {
     this.plugin.registry.deleteCollection(collection.id);
     const folderId = this.getCollectionFolderId(collection.id);
@@ -816,15 +821,7 @@ export class SkillHubView extends ItemView {
         await this.plugin.saveSkillHubData();
         this.render();
       },
-      delete: async (collection) => {
-        this.plugin.registry.deleteCollection(collection.id);
-        const folderId = this.getCollectionFolderId(collection.id);
-        this.removeFolderPin(folderId);
-        this.removeFolderOrder(folderId);
-        this.plugin.registry.recordEvent(createSkillEvent("collection_deleted", undefined, { collectionId: collection.id }));
-        await this.plugin.saveSkillHubData();
-        this.render();
-      }
+      delete: (collection) => this.deleteCollection(collection)
     }).open();
   }
 
