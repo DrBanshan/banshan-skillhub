@@ -1829,11 +1829,11 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       });
       return;
     }
+    this.renderFolderBoard(container, visibleBundles, collections);
     if (standaloneSkills.length > 0) {
       const grid = container.createDiv({ cls: "skillhub-grid" });
       for (const skill of standaloneSkills) this.renderCard(grid, skill);
     }
-    this.renderFolderBoard(container, visibleBundles, collections);
   }
   renderCard(grid, skill, collection) {
     const selected = this.selectedSkillIds.has(skill.id);

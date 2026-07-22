@@ -128,6 +128,15 @@ describe("skill hub UI source", () => {
     expect(source).toContain("bundleMetadata");
   });
 
+  it("renders standalone skill blocks after bundle and collection folders", async () => {
+    const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
+    const renderMethod = source.slice(source.indexOf("private renderSkillGrid"), source.indexOf("private renderCard"));
+
+    expect(renderMethod.indexOf("this.renderFolderBoard(container, visibleBundles, collections)")).toBeLessThan(
+      renderMethod.indexOf("if (standaloneSkills.length > 0)")
+    );
+  });
+
   it("uses one custom tooltip for card actions", async () => {
     const source = await readFile(new URL("../src/ui/SkillHubView.ts", import.meta.url), "utf8");
     const actionButtonMethod = source.slice(source.indexOf("private addCardActionButton"), source.indexOf("private createSvgIcon"));

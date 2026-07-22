@@ -157,11 +157,11 @@ export class SkillHubView extends ItemView {
       return;
     }
 
+    this.renderFolderBoard(container, visibleBundles, collections);
     if (standaloneSkills.length > 0) {
       const grid = container.createDiv({ cls: "skillhub-grid" });
       for (const skill of standaloneSkills) this.renderCard(grid, skill);
     }
-    this.renderFolderBoard(container, visibleBundles, collections);
   }
 
   private renderCard(grid: HTMLElement, skill: SkillRecord, collection?: SkillCollection): void {
