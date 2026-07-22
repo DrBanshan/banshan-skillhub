@@ -111,7 +111,10 @@ describe("skill card color styling", () => {
     expect(css).toContain(".skillhub-folder-actions");
     expect(css).toContain("bottom: 4.8em;");
     expect(css).toContain("button.skillhub-pin-button:hover");
-    expect(css).toContain(".skillhub-folder.is-folder-drop-target");
+    expect(css).toContain(".skillhub-folder.is-folder-drop-before");
+    expect(css).toContain(".skillhub-folder.is-folder-drop-after");
+    expect(css).toContain(".skillhub-folder-expansion.is-bundle");
+    expect(css).toContain("background: var(--skillhub-collection-color, var(--background-secondary));");
   });
 
   it("styles collection skill cards as reorderable drop targets", async () => {

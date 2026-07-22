@@ -1669,6 +1669,10 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   async onOpen() {
     this.render();
   }
+  async onClose() {
+    var _a;
+    (_a = this.folderBoardResizeObserver) == null ? void 0 : _a.disconnect();
+  }
   openGitHubImport() {
     new GitHubUrlModal(this.app, (url) => this.plugin.importFromGitHub(url)).open();
   }
@@ -1732,6 +1736,9 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     this.renderSkillGrid(results);
   }
   renderSkillGrid(container) {
+    var _a;
+    (_a = this.folderBoardResizeObserver) == null ? void 0 : _a.disconnect();
+    this.folderBoardResizeObserver = void 0;
     container.empty();
     const visibleSkills = this.getVisibleSkills();
     const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
@@ -1840,12 +1847,14 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       ...bundles.map(({ bundle, skills }) => ({
         id: bundle.id,
         name: bundle.name,
-        render: () => this.renderBundleFolder(board, bundle, skills)
+        renderFolder: () => this.renderBundleFolder(board, bundle),
+        renderExpansion: () => this.renderBundleExpansion(board, bundle, skills)
       })),
       ...collections.map((collection) => ({
         id: this.getCollectionFolderId(collection.id),
         name: collection.name,
-        render: () => this.renderCollectionFolder(board, collection)
+        renderFolder: () => this.renderCollectionFolder(board, collection),
+        renderExpansion: () => this.renderCollectionExpansion(board, collection)
       }))
     ];
     const orderIndex = new Map(this.plugin.registry.data.folderOrder.map((id, index) => [id, index]));
@@ -1855,9 +1864,21 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       const customOrder = ((_a = orderIndex.get(left.id)) != null ? _a : Number.MAX_SAFE_INTEGER) - ((_b = orderIndex.get(right.id)) != null ? _b : Number.MAX_SAFE_INTEGER);
       return pinOrder || customOrder || left.name.localeCompare(right.name);
     });
-    for (const folder of folders) folder.render();
+    for (const folder of folders) folder.renderFolder();
+    const expandedFolderIndex = folders.findIndex((folder) => folder.id === this.expandedFolderId);
+    if (expandedFolderIndex === -1) return;
+    const expansion = folders[expandedFolderIndex].renderExpansion();
+    const positionExpansion = () => {
+      if (!board.isConnected) return;
+      const columns = window.getComputedStyle(board).gridTemplateColumns.split(" ").filter((column) => column && column !== "none");
+      const columnCount = Math.max(1, columns.length);
+      expansion.style.gridRow = String(Math.floor(expandedFolderIndex / columnCount) + 2);
+    };
+    positionExpansion();
+    this.folderBoardResizeObserver = new ResizeObserver(positionExpansion);
+    this.folderBoardResizeObserver.observe(board);
   }
-  renderBundleFolder(board, bundle, visibleSkills) {
+  renderBundleFolder(board, bundle) {
     const selected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
     const folder = this.createFolderTile(board, {
       id: bundle.id,
@@ -1876,7 +1897,8 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     });
     folder.addClass("is-bundle");
     if (bundle.color) folder.style.setProperty("--skillhub-folder-color", bundle.color);
-    if (this.expandedFolderId !== bundle.id) return;
+  }
+  renderBundleExpansion(board, bundle, visibleSkills) {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
     if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
@@ -1885,6 +1907,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     if (bundle.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: bundle.description });
     const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
     for (const skill of visibleSkills) this.renderCard(grid, skill);
+    return expansion;
   }
   renderCollectionFolder(board, collection) {
     const selected = this.selectedCollectionIds.has(collection.id);
@@ -1907,7 +1930,8 @@ var SkillHubView = class extends import_obsidian3.ItemView {
     folder.addClass("is-collection");
     if (collection.color) folder.style.setProperty("--skillhub-folder-color", collection.color);
     this.configureCollectionDropTarget(folder, collection.id);
-    if (this.expandedFolderId !== folderId) return;
+  }
+  renderCollectionExpansion(board, collection) {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-collection" });
     if (collection.color) expansion.style.setProperty("--skillhub-collection-color", collection.color);
     this.configureCollectionDropTarget(expansion, collection.id);
@@ -1922,6 +1946,7 @@ var SkillHubView = class extends import_obsidian3.ItemView {
       const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
       for (const skill of memberSkills) this.renderCard(grid, skill, collection);
     }
+    return expansion;
   }
   createFolderTile(board, options) {
     const expanded = this.expandedFolderId === options.id;
@@ -1947,18 +1972,21 @@ var SkillHubView = class extends import_obsidian3.ItemView {
         if (!this.hasDataTransferType(event, FOLDER_DRAG_TYPE)) return;
         event.preventDefault();
         event.stopPropagation();
-        folder.addClass("is-folder-drop-target");
+        const dropAfter = this.shouldDropAfter(folder, event);
+        folder.removeClass(dropAfter ? "is-folder-drop-before" : "is-folder-drop-after");
+        folder.addClass(dropAfter ? "is-folder-drop-after" : "is-folder-drop-before");
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
       });
-      folder.addEventListener("dragleave", () => folder.removeClass("is-folder-drop-target"));
+      folder.addEventListener("dragleave", () => this.clearFolderDropIndicator(folder));
       folder.addEventListener("drop", (event) => {
         var _a;
         const draggedFolderId = (_a = event.dataTransfer) == null ? void 0 : _a.getData(FOLDER_DRAG_TYPE);
         if (!draggedFolderId) return;
         event.preventDefault();
         event.stopPropagation();
-        folder.removeClass("is-folder-drop-target");
-        void this.reorderFolder(draggedFolderId, options.id, this.shouldDropAfter(folder, event));
+        const dropAfter = this.shouldDropAfter(folder, event);
+        this.clearFolderDropIndicator(folder);
+        void this.reorderFolder(draggedFolderId, options.id, dropAfter);
       });
       folder.addEventListener("click", (event) => {
         if (this.isInteractiveSelectionTarget(event.target)) return;
@@ -2221,6 +2249,10 @@ var SkillHubView = class extends import_obsidian3.ItemView {
   hasDataTransferType(event, type) {
     var _a, _b;
     return Array.from((_b = (_a = event.dataTransfer) == null ? void 0 : _a.types) != null ? _b : []).includes(type);
+  }
+  clearFolderDropIndicator(folder) {
+    folder.removeClass("is-folder-drop-before");
+    folder.removeClass("is-folder-drop-after");
   }
   isFolderPinned(folderId) {
     return this.plugin.registry.data.pinnedFolderIds.includes(folderId);

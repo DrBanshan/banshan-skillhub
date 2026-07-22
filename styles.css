@@ -536,9 +536,12 @@ button.skillhub-card-action-button:active {
   cursor: grabbing;
 }
 
-.skillhub-folder.is-folder-drop-target {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+.skillhub-folder.is-folder-drop-before {
+  box-shadow: -5px 0 0 -1px var(--interactive-accent);
+}
+
+.skillhub-folder.is-folder-drop-after {
+  box-shadow: 5px 0 0 -1px var(--interactive-accent);
 }
 
 .skillhub-folder-expansion {
@@ -549,6 +552,11 @@ button.skillhub-card-action-button:active {
   border: 1px solid color-mix(in srgb, var(--skillhub-collection-color, var(--interactive-accent)) 45%, var(--background-modifier-border));
   border-radius: 6px;
   background: color-mix(in srgb, var(--skillhub-collection-color, var(--interactive-accent)) 8%, var(--background-secondary));
+}
+
+.skillhub-folder-expansion.is-bundle {
+  border-color: var(--skillhub-collection-color, var(--interactive-accent));
+  background: var(--skillhub-collection-color, var(--background-secondary));
 }
 
 .skillhub-folder-expansion.is-drop-target {

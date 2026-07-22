@@ -97,6 +97,12 @@ describe("skill hub UI source", () => {
     expect(source).toContain("folderOrder");
     expect(source).toContain("reorderFolder");
     expect(source).toContain("application/x-skillhub-folder-id");
+    expect(source).toContain("renderBundleExpansion");
+    expect(source).toContain("renderCollectionExpansion");
+    expect(source).toContain("gridTemplateColumns");
+    expect(source).toContain("ResizeObserver");
+    expect(source).toContain("is-folder-drop-before");
+    expect(source).toContain("is-folder-drop-after");
     expect(source).toContain('"Pin", "pin"');
     expect(source).toContain("handleCollectionDrop");
     expect(source).toContain("updateSkillCollections");

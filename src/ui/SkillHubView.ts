@@ -30,6 +30,7 @@ export class SkillHubView extends ItemView {
   private readonly selectedSkillIds = new Set<string>();
   private readonly selectedCollectionIds = new Set<string>();
   private pendingCollectionDrag: { collectionId: string; skillId: string; handled: boolean } | undefined;
+  private folderBoardResizeObserver: ResizeObserver | undefined;
   private expandedFolderId: string | undefined;
   private selectMode = false;
   private filterQuery = "";
@@ -52,6 +53,10 @@ export class SkillHubView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.render();
+  }
+
+  async onClose(): Promise<void> {
+    this.folderBoardResizeObserver?.disconnect();
   }
 
   openGitHubImport(): void {
@@ -126,6 +131,8 @@ export class SkillHubView extends ItemView {
   }
 
   private renderSkillGrid(container: HTMLElement): void {
+    this.folderBoardResizeObserver?.disconnect();
+    this.folderBoardResizeObserver = undefined;
     container.empty();
     const visibleSkills = this.getVisibleSkills();
     const visibleSkillIds = new Set(visibleSkills.map((skill) => skill.id));
@@ -244,12 +251,14 @@ export class SkillHubView extends ItemView {
       ...bundles.map(({ bundle, skills }) => ({
         id: bundle.id,
         name: bundle.name,
-        render: () => this.renderBundleFolder(board, bundle, skills)
+        renderFolder: () => this.renderBundleFolder(board, bundle),
+        renderExpansion: () => this.renderBundleExpansion(board, bundle, skills)
       })),
       ...collections.map((collection) => ({
         id: this.getCollectionFolderId(collection.id),
         name: collection.name,
-        render: () => this.renderCollectionFolder(board, collection)
+        renderFolder: () => this.renderCollectionFolder(board, collection),
+        renderExpansion: () => this.renderCollectionExpansion(board, collection)
       }))
     ];
     const orderIndex = new Map(this.plugin.registry.data.folderOrder.map((id, index) => [id, index]));
@@ -258,10 +267,23 @@ export class SkillHubView extends ItemView {
       const customOrder = (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER);
       return pinOrder || customOrder || left.name.localeCompare(right.name);
     });
-    for (const folder of folders) folder.render();
+    for (const folder of folders) folder.renderFolder();
+
+    const expandedFolderIndex = folders.findIndex((folder) => folder.id === this.expandedFolderId);
+    if (expandedFolderIndex === -1) return;
+    const expansion = folders[expandedFolderIndex].renderExpansion();
+    const positionExpansion = (): void => {
+      if (!board.isConnected) return;
+      const columns = window.getComputedStyle(board).gridTemplateColumns.split(" ").filter((column) => column && column !== "none");
+      const columnCount = Math.max(1, columns.length);
+      expansion.style.gridRow = String(Math.floor(expandedFolderIndex / columnCount) + 2);
+    };
+    positionExpansion();
+    this.folderBoardResizeObserver = new ResizeObserver(positionExpansion);
+    this.folderBoardResizeObserver.observe(board);
   }
 
-  private renderBundleFolder(board: HTMLElement, bundle: SkillBundle, visibleSkills: SkillRecord[]): void {
+  private renderBundleFolder(board: HTMLElement, bundle: SkillBundle): void {
     const selected = bundle.skills.every((skill) => this.selectedSkillIds.has(skill.id));
     const folder = this.createFolderTile(board, {
       id: bundle.id,
@@ -280,8 +302,9 @@ export class SkillHubView extends ItemView {
     });
     folder.addClass("is-bundle");
     if (bundle.color) folder.style.setProperty("--skillhub-folder-color", bundle.color);
+  }
 
-    if (this.expandedFolderId !== bundle.id) return;
+  private renderBundleExpansion(board: HTMLElement, bundle: SkillBundle, visibleSkills: SkillRecord[]): HTMLElement {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-bundle" });
     if (bundle.color) expansion.style.setProperty("--skillhub-collection-color", bundle.color);
     const header = expansion.createDiv({ cls: "skillhub-folder-expansion-header" });
@@ -290,6 +313,7 @@ export class SkillHubView extends ItemView {
     if (bundle.description) expansion.createEl("p", { cls: "skillhub-collection-description", text: bundle.description });
     const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
     for (const skill of visibleSkills) this.renderCard(grid, skill);
+    return expansion;
   }
 
   private renderCollectionFolder(board: HTMLElement, collection: SkillCollection): void {
@@ -313,8 +337,9 @@ export class SkillHubView extends ItemView {
     folder.addClass("is-collection");
     if (collection.color) folder.style.setProperty("--skillhub-folder-color", collection.color);
     this.configureCollectionDropTarget(folder, collection.id);
+  }
 
-    if (this.expandedFolderId !== folderId) return;
+  private renderCollectionExpansion(board: HTMLElement, collection: SkillCollection): HTMLElement {
     const expansion = board.createDiv({ cls: "skillhub-folder-expansion is-collection" });
     if (collection.color) expansion.style.setProperty("--skillhub-collection-color", collection.color);
     this.configureCollectionDropTarget(expansion, collection.id);
@@ -329,7 +354,7 @@ export class SkillHubView extends ItemView {
       const grid = expansion.createDiv({ cls: "skillhub-grid skillhub-folder-expanded-grid" });
       for (const skill of memberSkills) this.renderCard(grid, skill, collection);
     }
-
+    return expansion;
   }
 
   private createFolderTile(
@@ -366,17 +391,20 @@ export class SkillHubView extends ItemView {
         if (!this.hasDataTransferType(event, FOLDER_DRAG_TYPE)) return;
         event.preventDefault();
         event.stopPropagation();
-        folder.addClass("is-folder-drop-target");
+        const dropAfter = this.shouldDropAfter(folder, event);
+        folder.removeClass(dropAfter ? "is-folder-drop-before" : "is-folder-drop-after");
+        folder.addClass(dropAfter ? "is-folder-drop-after" : "is-folder-drop-before");
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
       });
-      folder.addEventListener("dragleave", () => folder.removeClass("is-folder-drop-target"));
+      folder.addEventListener("dragleave", () => this.clearFolderDropIndicator(folder));
       folder.addEventListener("drop", (event) => {
         const draggedFolderId = event.dataTransfer?.getData(FOLDER_DRAG_TYPE);
         if (!draggedFolderId) return;
         event.preventDefault();
         event.stopPropagation();
-        folder.removeClass("is-folder-drop-target");
-        void this.reorderFolder(draggedFolderId, options.id, this.shouldDropAfter(folder, event));
+        const dropAfter = this.shouldDropAfter(folder, event);
+        this.clearFolderDropIndicator(folder);
+        void this.reorderFolder(draggedFolderId, options.id, dropAfter);
       });
       folder.addEventListener("click", (event) => {
         if (this.isInteractiveSelectionTarget(event.target)) return;
@@ -669,6 +697,11 @@ export class SkillHubView extends ItemView {
 
   private hasDataTransferType(event: DragEvent, type: string): boolean {
     return Array.from(event.dataTransfer?.types ?? []).includes(type);
+  }
+
+  private clearFolderDropIndicator(folder: HTMLElement): void {
+    folder.removeClass("is-folder-drop-before");
+    folder.removeClass("is-folder-drop-after");
   }
 
   private isFolderPinned(folderId: string): boolean {
