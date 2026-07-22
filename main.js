@@ -1025,19 +1025,21 @@ var SkillSelectionModal = class extends import_obsidian2.Modal {
     super(app);
     this.options = options;
     this.onSubmit = onSubmit;
-    this.selected = /* @__PURE__ */ new Set();
     this.cleanupErrorShown = false;
+    this.selected = new Set(options.length === 1 ? [options[0].id] : []);
     this.cleanup = createCleanupOnce(onCleanup);
   }
   onOpen() {
     this.setTitle("Select skills");
     const selectAll = this.contentEl.createEl("input", { type: "checkbox" });
+    selectAll.checked = this.options.length > 0 && this.selected.size === this.options.length;
     const selectAllLabel = this.contentEl.createEl("label", { text: " Select all" });
     selectAllLabel.prepend(selectAll);
     const list = this.contentEl.createDiv({ cls: "skillhub-selection-list" });
     const checks = this.options.map((option) => {
       const label = list.createEl("label", { cls: "skillhub-selection-item" });
       const checkbox = label.createEl("input", { type: "checkbox" });
+      checkbox.checked = this.selected.has(option.id);
       label.appendText(` ${option.label}`);
       checkbox.addEventListener("change", () => {
         checkbox.checked ? this.selected.add(option.id) : this.selected.delete(option.id);
@@ -1661,7 +1663,7 @@ function deriveSkillBundles(skills, bundleMetadata) {
     const excludedSkillIds = new Set((_h = (_g = bundleMetadata[bundle.id]) == null ? void 0 : _g.excludedSkillIds) != null ? _h : []);
     bundle.skills = bundle.skills.filter((skill) => !excludedSkillIds.has(skill.id));
   }
-  return [...grouped.values()].filter((bundle) => bundle.skills.length >= 2 || bundle.skills.length === 1 && Boolean(bundleMetadata[bundle.id])).sort((left, right) => left.name.localeCompare(right.name));
+  return [...grouped.values()].filter((bundle) => bundle.skills.length >= 2).sort((left, right) => left.name.localeCompare(right.name));
 }
 function getSkillSourceIdentity(source) {
   if (source.type === "github" && source.url) {

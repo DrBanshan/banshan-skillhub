@@ -91,13 +91,27 @@ describe("deriveSkillBundles", () => {
     })[0]).toMatchObject({ name: "Research suite", description: "Research workflow", color: "#123456" });
   });
 
-  it("excludes skills removed through bundle editing", () => {
+  it("stops rendering a bundle when editing leaves only one skill", () => {
     const source: SkillSource = { type: "local", path: "/Users/me/agent-library" };
-    const bundle = deriveSkillBundles(
+    const bundles = deriveSkillBundles(
       [createSkill("one", source), createSkill("two", source)],
       { "local:/Users/me/agent-library": { excludedSkillIds: ["two"] } }
-    )[0];
+    );
 
-    expect(bundle.skills.map((skill) => skill.id)).toEqual(["one"]);
+    expect(bundles).toEqual([]);
+  });
+
+  it("does not render one-skill GitHub, local, or npx sources as folders", () => {
+    const skills = [
+      createSkill("github", { type: "github", url: "https://github.com/acme/solo" }),
+      createSkill("local", { type: "local", path: "/Users/me/solo" }),
+      createSkill("npx", { type: "npx", command: "npx skills add https://github.com/acme/npx-solo" })
+    ];
+
+    expect(deriveSkillBundles(skills, {
+      "github:acme/solo": { name: "Saved GitHub bundle" },
+      "local:/Users/me/solo": { name: "Saved local bundle" },
+      "npx:npx skills add https://github.com/acme/npx-solo": { name: "Saved npx bundle" }
+    })).toEqual([]);
   });
 });

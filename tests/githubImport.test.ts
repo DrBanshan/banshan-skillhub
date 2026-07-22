@@ -12,6 +12,9 @@ import {
   resolveGitHubSkillUrl,
   writeBoundedGitHubResponse
 } from "../src/githubImport";
+import { SkillImportService } from "../src/importService";
+import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
+import { DEFAULT_SETTINGS } from "../src/settingsDefaults";
 
 const temporaryDirectories: string[] = [];
 
@@ -233,6 +236,43 @@ describe("GitHubSkillDownloader", () => {
     ]);
     expect(result.skills.map((skill) => skill.metadata.name)).toEqual(["Reviewer"]);
     await expect(readFile(join(destination, "skills/reviewer/README.md"), "utf8")).rejects.toThrow();
+  });
+
+  it("imports a downloaded root skill into the vault", async () => {
+    const stagingPath = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    const vaultPath = await mkdtemp(join(tmpdir(), "skillhub-github-vault-"));
+    temporaryDirectories.push(stagingPath, vaultPath);
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({
+        status: 200,
+        data: [{
+          type: "file",
+          name: "SKILL.md",
+          path: "SKILL.md",
+          download_url: "https://files/root-skill"
+        }]
+      }),
+      downloadFile: async (_url, path) => {
+        const content = "---\nname: Root reviewer\ndescription: Reviews code\n---\n";
+        await writeFile(path, content, { encoding: "utf8", flush: true });
+        return Buffer.byteLength(content);
+      }
+    });
+    const location = { owner: "owner", repo: "reviewer", rootPath: "", skillsPath: "skills" };
+    const [candidate] = await downloader.listSkillCandidates(location);
+    const discovered = await downloader.downloadSkillCandidate(location, candidate, stagingPath);
+    const registry = new SkillRegistry(createEmptySkillHubData());
+
+    const result = await new SkillImportService(registry, DEFAULT_SETTINGS).importDiscoveredSkills(discovered.skills, {
+      vaultPath,
+      source: { type: "github", url: "https://github.com/owner/reviewer" },
+      importMethod: "github",
+      stagingPath
+    });
+
+    expect(result.imported).toHaveLength(1);
+    expect(Object.values(registry.data.skills)).toHaveLength(1);
+    await expect(readFile(join(vaultPath, "Skill", "reviewer", "SKILL.md"), "utf8")).resolves.toContain("name: Root reviewer");
   });
 
   it("downloads recursively only within the selected skill folder and discovers the staged skill", async () => {

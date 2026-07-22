@@ -66,7 +66,7 @@ export function deriveSkillBundles(skills: SkillRecord[], bundleMetadata: Record
     bundle.skills = bundle.skills.filter((skill) => !excludedSkillIds.has(skill.id));
   }
   return [...grouped.values()]
-    .filter((bundle) => bundle.skills.length >= 2 || (bundle.skills.length === 1 && Boolean(bundleMetadata[bundle.id])))
+    .filter((bundle) => bundle.skills.length >= 2)
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 

@@ -22,6 +22,14 @@ describe("skill hub UI source", () => {
     expect(source).toContain("skillhub-emoji-candidates");
   });
 
+  it("preselects the only skill in an import selection", async () => {
+    const source = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
+    const selectionModal = source.slice(source.indexOf("export class SkillSelectionModal"), source.indexOf("export interface InstallSelectionValues"));
+
+    expect(selectionModal).toContain("new Set(options.length === 1 ? [options[0].id] : [])");
+    expect(selectionModal).toContain("checkbox.checked = this.selected.has(option.id)");
+  });
+
   it("supports enter-to-add editable tag chips with colors and delete controls", async () => {
     const source = await readFile(new URL("../src/ui/modals.ts", import.meta.url), "utf8");
 

@@ -94,7 +94,7 @@ export interface SkillSelectionOption<T> {
 }
 
 export class SkillSelectionModal<T> extends Modal {
-  private readonly selected = new Set<string>();
+  private readonly selected: Set<string>;
   private readonly cleanup: () => Promise<void>;
   private cleanupErrorShown = false;
 
@@ -105,12 +105,14 @@ export class SkillSelectionModal<T> extends Modal {
     onCleanup: () => void | Promise<void> = () => undefined
   ) {
     super(app);
+    this.selected = new Set(options.length === 1 ? [options[0].id] : []);
     this.cleanup = createCleanupOnce(onCleanup);
   }
 
   onOpen(): void {
     this.setTitle("Select skills");
     const selectAll = this.contentEl.createEl("input", { type: "checkbox" });
+    selectAll.checked = this.options.length > 0 && this.selected.size === this.options.length;
     const selectAllLabel = this.contentEl.createEl("label", { text: " Select all" });
     selectAllLabel.prepend(selectAll);
 
@@ -118,6 +120,7 @@ export class SkillSelectionModal<T> extends Modal {
     const checks = this.options.map((option) => {
       const label = list.createEl("label", { cls: "skillhub-selection-item" });
       const checkbox = label.createEl("input", { type: "checkbox" });
+      checkbox.checked = this.selected.has(option.id);
       label.appendText(` ${option.label}`);
       checkbox.addEventListener("change", () => {
         checkbox.checked ? this.selected.add(option.id) : this.selected.delete(option.id);
