@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
 import { CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
-import { inspectDestination, SkillExportService, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
+import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
 import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
@@ -370,6 +370,17 @@ export default class SkillHubPlugin extends Plugin {
         }
       },
       {
+        action: "link",
+        description: "Link one skill into an agent skill directory",
+        mutating: true,
+        flags: {
+          skill: { value: "<name|id>", description: "Skill to link", required: true },
+          target: { value: "<path>", description: "Directory receiving .agents/skills; defaults to the remembered target" },
+          method: { value: "<symlink|junction>", description: "Link kind; a refused symlink falls back to a junction" },
+          force: { description: "Replace an existing link that Skill Hub made here" }
+        }
+      },
+      {
         action: "uninstall",
         description: "Remove Skill Hub installs from a target directory, only where the install record proves ownership",
         destructive: true,
@@ -389,6 +400,7 @@ export default class SkillHubPlugin extends Plugin {
       case "search": return this.cliSearch(args);
       case "scan": return this.cliScan(args);
       case "install": return this.cliInstall(args);
+      case "link": return this.cliLink(args);
       case "uninstall": return this.cliUninstall(args);
       default: return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
     }
@@ -511,6 +523,67 @@ export default class SkillHubPlugin extends Plugin {
       throw new CliError(`Missing required parameter target=<path>. Pick an install target once in Skill Hub so it is remembered, or pass target=<path> before running ${action}.`);
     }
     return target;
+  }
+
+  private async cliLink(args: CliArgs): Promise<CliOutcome> {
+    const selector = args.required("skill");
+    const record = this.cliFindRecord(selector);
+    const all = this.cliRecords();
+    if (!record) {
+      const known = all.slice(0, 8).map((entry) => entry.nickname).join(", ");
+      throw new CliError(`No skill named ${selector}. Known skills: ${known.length > 0 ? `${known}${all.length > 8 ? ", ..." : ""}` : "(none)"}.`);
+    }
+    const target = this.cliTarget(args, "link");
+    const vaultPath = this.getVaultBasePath();
+    const mechanism = this.cliLinkMethod(args);
+    await this.assertCliInstallTarget(target, vaultPath);
+    const destination = this.cliInstallDestination(target, record, "link");
+    const state = await inspectDestination(destination);
+
+    if (state === "real") {
+      throw new CliError(`${destination} is a real path that the install record does not account for, so link refuses to touch it. Use another skill name, or remove that path yourself first.`);
+    }
+    if (state === "symlink" && !args.flag("force")) {
+      throw new CliError(`${destination} is already linked. Pass force=1 to replace the existing link.`);
+    }
+    const replacing = state === "symlink";
+
+    if (args.dryrun) {
+      return {
+        action: "link",
+        ok: true,
+        message: `dryrun: would ${replacing ? "replace the link at" : "link"} ${destination} to ${record.vaultPath} using ${mechanism}`,
+        columns: CLI_INSTALL_COLUMNS,
+        rows: [{ name: record.nickname, decision: replacing ? "replaced" : "installed", destination, mechanism, reason: replacing ? "existing link would be replaced" : "" }],
+        data: { target, skill: record.id, mechanism, dryrun: true }
+      };
+    }
+
+    const summary = await this.installSkillsTo([record], target, {
+      vaultPath,
+      method: mechanism,
+      conflictBehavior: replacing ? "replace-symlinks" : "skip"
+    });
+    this.refreshSkillHub();
+    const failure = summary.failed.find((entry) => entry.skillId === record.id);
+    return {
+      action: "link",
+      ok: failure === undefined,
+      message: failure
+        ? `${destination}: ${failure.reason}`
+        : `${destination} -> ${record.vaultPath} via ${summary.mechanisms?.[record.id] ?? mechanism}`,
+      columns: CLI_INSTALL_COLUMNS,
+      rows: this.cliInstallRows([record], target, summary),
+      data: { target, skill: record.id, mechanism, summary }
+    };
+  }
+
+  private cliLinkMethod(args: CliArgs): InstallLinkMechanism {
+    const fallback = this.data.settings.installMethod === "copy" ? "symlink" : this.data.settings.installMethod;
+    const requested = (args.value("method") ?? fallback).trim().toLowerCase();
+    if (requested === "symlink" || requested === "junction") return requested;
+    if (requested === "copy") throw new CliError("link needs method=symlink or method=junction. Use install for copies.");
+    throw new CliError(`Unknown method ${requested}. Use symlink or junction.`);
   }
 
   private async cliUninstall(args: CliArgs): Promise<CliOutcome> {
