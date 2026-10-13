@@ -9,6 +9,7 @@ type SkillHubSettingKey =
   | "installMethod"
   | "defaultSort"
   | "npxExecutionEnabled"
+  | "cliEnabled"
   | "defaultSymlinkConflictBehavior";
 
 export class SkillHubSettingTab extends PluginSettingTab {
@@ -66,6 +67,15 @@ export class SkillHubSettingTab extends PluginSettingTab {
           }
         },
         {
+          name: "Enable command line interface",
+          desc: "Allow the Obsidian command line interface to run Skill Hub commands.",
+          control: {
+            type: "toggle",
+            key: "cliEnabled",
+            defaultValue: DEFAULT_SETTINGS.cliEnabled
+          }
+        },
+        {
           name: "Symlink conflict behavior",
           desc: "Choose what happens when a destination is already a symlink.",
           control: {
@@ -96,6 +106,8 @@ export class SkillHubSettingTab extends PluginSettingTab {
       this.skillHubPlugin.refreshSkillHub();
     } else if (key === "npxExecutionEnabled") {
       this.skillHubPlugin.data.settings.npxExecutionEnabled = Boolean(value);
+    } else if (key === "cliEnabled") {
+      this.skillHubPlugin.data.settings.cliEnabled = Boolean(value);
     } else if (key === "defaultSymlinkConflictBehavior" && this.isSymlinkConflictBehavior(value)) {
       this.skillHubPlugin.data.settings.defaultSymlinkConflictBehavior = value;
     }

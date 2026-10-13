@@ -169,12 +169,27 @@ export default class SkillHubPlugin extends Plugin {
     try {
       const targetDir = await pickNativeFolder();
       if (!targetDir) return;
+      this.rememberInstallTarget(targetDir);
       const summary = await this.installSkillsTo(records, targetDir);
       new InstallResultModal(this.app, summary).open();
       this.refreshSkillHub();
     } catch (error) {
       this.showError(error);
     }
+  }
+
+  defaultInstallTarget(): string | undefined {
+    return this.knownInstallTargets()[0];
+  }
+
+  knownInstallTargets(): string[] {
+    const stored = this.data.settings.knownInstallTargets;
+    return Array.isArray(stored) ? stored.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+  }
+
+  private rememberInstallTarget(targetDir: string): void {
+    const known = this.knownInstallTargets().filter((entry) => entry !== targetDir);
+    this.data.settings.knownInstallTargets = [targetDir, ...known].slice(0, 8);
   }
 
   async installSkillsTo(

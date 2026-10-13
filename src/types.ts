@@ -4,6 +4,8 @@ export interface SkillHubSettings {
   skillFolder: string;
   installMethod: InstallMethod;
   npxExecutionEnabled: boolean;
+  cliEnabled: boolean;
+  knownInstallTargets: string[];
   defaultSymlinkConflictBehavior: "skip" | "overwrite";
   defaultSort: "nickname" | "originalName" | "updatedAt" | "custom";
   skillOrder: string[];

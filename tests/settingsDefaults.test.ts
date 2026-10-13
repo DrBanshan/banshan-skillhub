@@ -7,6 +7,8 @@ describe("DEFAULT_SETTINGS", () => {
       skillFolder: "Skill",
       installMethod: "symlink",
       npxExecutionEnabled: false,
+      cliEnabled: false,
+      knownInstallTargets: [],
       defaultSymlinkConflictBehavior: "skip",
       defaultSort: "nickname",
       skillOrder: []
