@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, symlink, unlink } from "fs/promises";
+import { lstat, mkdir, readdir, readFile, symlink, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { createSkillEvent } from "./events";
 import { SkillRegistry } from "./registry";
@@ -106,13 +106,41 @@ export async function installByCopy(source: string, destination: string): Promis
   if ((await inspectDestination(destination)) !== "missing") return "skipped";
 
   try {
-    await mkdir(destination);
+    await copyDirectoryTree(source, destination);
   } catch (error) {
+    // the destination appeared between the check above and the mkdir inside the copy, which belongs
+    // to someone else, so leave it untouched rather than writing into it
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return "skipped";
     throw error;
   }
-  await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
   return "installed";
+}
+
+/**
+ * Copies a skill folder one entry at a time. fs.cp is deliberately not used: when the destination
+ * already exists it copies the source inside it rather than reporting a clash, which would report a
+ * raced destination as installed and bury the other owner's files one level deeper. Every write here
+ * uses an exclusive flag, so anything that exists already surfaces as EEXIST and is left alone.
+ * File modes are not carried over and a link inside a skill folder is copied as its contents,
+ * either of which is fine for the plain text trees these are.
+ */
+async function copyDirectoryTree(source: string, destination: string): Promise<void> {
+  await mkdir(destination);
+  await copyDirectoryEntries(source, destination);
+}
+
+async function copyDirectoryEntries(source: string, destination: string): Promise<void> {
+  const entries = await readdir(source, { withFileTypes: true });
+  for (const entry of entries) {
+    const from = join(source, entry.name);
+    const to = join(destination, entry.name);
+    if (entry.isDirectory()) {
+      await mkdir(to);
+      await copyDirectoryEntries(from, to);
+    } else {
+      await writeFile(to, await readFile(from), { flag: "wx" });
+    }
+  }
 }
 
 function formatInstallError(error: unknown, method: InstallMethod): string {
