@@ -2,7 +2,7 @@ import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { combineErrors } from "./errors";
-import { SkillExportService } from "./exportService";
+import { SkillExportService, type InstallOptions, type InstallSummary } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
 import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
@@ -169,17 +169,27 @@ export default class SkillHubPlugin extends Plugin {
     try {
       const targetDir = await pickNativeFolder();
       if (!targetDir) return;
-      const summary = await new SkillExportService(this.registry).installSkills(records, targetDir, {
-        vaultPath: this.getVaultBasePath(),
-        method: this.data.settings.installMethod,
-        conflictBehavior: this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip"
-      });
-      await this.saveSkillHubData();
+      const summary = await this.installSkillsTo(records, targetDir);
       new InstallResultModal(this.app, summary).open();
       this.refreshSkillHub();
     } catch (error) {
       this.showError(error);
     }
+  }
+
+  async installSkillsTo(
+    records: SkillRecord[],
+    targetDir: string,
+    overrides: Partial<InstallOptions> = {}
+  ): Promise<InstallSummary> {
+    const summary = await new SkillExportService(this.registry).installSkills(records, targetDir, {
+      vaultPath: overrides.vaultPath ?? this.getVaultBasePath(),
+      method: overrides.method ?? this.data.settings.installMethod,
+      conflictBehavior: overrides.conflictBehavior
+        ?? (this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip")
+    });
+    await this.saveSkillHubData();
+    return summary;
   }
 
   async deleteSkill(record: SkillRecord): Promise<void> {
