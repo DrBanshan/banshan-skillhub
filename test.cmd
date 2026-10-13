@@ -9,7 +9,7 @@ rem  repeatable and it never writes into the vault apart from the import section
 rem  which is called out in the summary.
 rem
 rem  Usage:   test.cmd
-rem           test.cmd --open      also opens the report in notepad
+if defined OPEN_REPORT start "" notepad "%REPORT"
 rem
 rem  Fill in the six values marked EDIT below, keep Obsidian open with the vault
 rem  loaded, the plugin enabled, and Skill Hub's "Enable Skill Hub command line
@@ -36,13 +36,49 @@ rem  harness itself gets exercised without a live Obsidian.
 rem ============================================================================
 
 rem ---------------------------------------------------------------- EDIT begin
-if not defined VAULT set "VAULT=D:\Projects\ob-plugin-dev"
+rem leave unset to have the run detect the vault, or set it here or in the environment
+rem a vault given on the command line wins over both
+if not defined VAULT set "VAULT="
 set "VAULTSEL="
 set "SKILLSFOLDER=Skill"
 set "SKILL_A=writing-plans"
 set "SKILL_B=using-superpowers"
 set "SKILL_C=writing-skills"
 rem --------------------------------------------------------------- EDIT end --
+
+rem ------------------------------------------------------------------ arguments
+rem   test.cmd                          detect the vault and run every checks
+rem   test.cmd vault=^<vault folder^>             use a particular vault, the folder holding .obsidian
+rem   test.cmd --vault=^<vault folder^>           the same thing
+rem   test.cmd --list                     list the vaults Obsidian knows and which are ready
+rem   test.cmd --open                     open the report in notepad when the run ends
+rem   test.cmd --help                     show this
+set "ARG_VAULT="
+set "ARG_HELP="
+set "OPEN_REPORT="
+set "LIST_REQUESTED="
+call :parse_args %*
+if defined ARG_HELP goto :show_help
+if defined LIST_REQUESTED goto :list_vaults
+goto :args_done
+:show_help
+echo Banshan Skill Hub command line harness
+echo.
+echo   test.cmd                            detect the vault and run every checks
+echo   test.cmd vault=^<vault folder^>             use a particular vault, the folder holding .obsidian
+echo   test.cmd --list                     list the vaults Obsidian knows and which are ready
+echo   test.cmd --open                     open the report in notepad when the run ends
+echo   test.cmd --help                     show this
+echo.
+echo without a vault named, one is detected from the Obsidian registry, preferring the vault
+echo that has banshan-skillhub installed and, between several of those, the most recently
+echo opened. the report lands under %TEMP%\skillhub-cli-test and the exit code
+echo is the number of failed checks.
+exit /b 0
+:list_vaults
+node "%~dp0vaultsel.cjs" --list
+exit /b %ERRORLEVEL%
+:args_done
 
 set "ROOT=%TEMP%\skillhub-cli-test"
 set "TARGET=%ROOT%\agent"
@@ -62,9 +98,12 @@ set /a FAIL=0
 set /a SKIP=0
 set "LEFTBEHIND="
 
-if not exist "%VAULT%\" (
-  echo Vault folder was not found: %VAULT%
-  echo Set VAULT to the folder holding your .obsidian directory, then run this again.
+if defined VAULT if not exist "%VAULT%\" (
+  echo a vault folder is not there: %VAULT%
+  echo point VAULT at the folder holding your .obsidian directory, or pass one on the command line
+  echo   test.cmd vault=^<vault folder^>
+  echo to see what Obsidian knows about your vaults:
+  echo   test.cmd --list
   exit /b 2
 )
 
@@ -76,12 +115,58 @@ mkdir "%FOREIGN%" >nul 2>&1
 mkdir "%IMPORTSRC%\skills\cli-demo" >nul 2>&1
 
 rem ---- work out the vault selector to hand the client -----------------------
+rem ---- work out which vault to test, and the selector to hand the client -------------------
+set "VAULT_SOURCE=detected from the Obsidian registry"
+if not "%VAULT%"=="" set "VAULT_SOURCE=the VAULT value, from the environment or the EDIT block"
+if defined ARG_VAULT (
+  set "VAULT=%ARG_VAULT%"
+  set "VAULT_SOURCE=passed on the command line"
+)
 set "VSEL=%VAULTSEL%"
-if defined VSEL goto :sel_done
-node "%~dp0vaultsel.cjs" "%VAULT%" >%SELFILE% 2>nul
+if not "%VSEL%"=="" goto :vault_resolved
+if not defined VAULT goto :vault_need_detect
+goto :vault_have
+:vault_need_detect
+node "%~dp0vaultsel.cjs" --detect >%SELFILE% 2>&1
+if errorlevel 1 goto :vault_detect_failed
+for /f "usebackq tokens=* delims=" %%a in (%SELFILE%) do (set "VAULT=%%a"&goto :vault_first_done)
+:vault_first_done
+for /f "usebackq skip=1 tokens=* delims=" %%b in (%SELFILE%) do (set "VSEL=%%b"&goto :vault_second_done)
+:vault_second_done
+:vault_have
+if not defined VAULT goto :vault_none
+if "%VSEL%"=="" goto :vault_selector
+goto :vault_validated
+:vault_selector
+node "%~dp0vaultsel.cjs" %VAULT% >%SELFILE% 2>nul
 set /p VSEL=<%SELFILE%
-if defined VSEL goto :sel_done
-:sel_done
+if not "%VSEL%"=="" goto :vault_validated
+for %%c in ("%VAULT%") do set "VBASE=%%~nxc"
+set "VSEL=vault=%VBASE%"
+goto :vault_validated
+:vault_detect_failed
+echo.
+echo a vault could not be detected. to see what Obsidian knows about your vaults:
+echo   test.cmd --list
+echo or pass one on the command line:
+echo   test.cmd vault=^<vault folder^>
+exit /b 4
+:vault_none
+echo a vault was not settled on. to see what Obsidian knows about your vaults:
+echo   test.cmd --list
+echo or pass one on the command line:
+echo   test.cmd vault=^<vault folder^>
+exit /b 4
+:vault_validated
+if not exist "%VAULT%\" (
+  echo a vault folder is not there: %VAULT%
+  echo   it came from:  %VAULT_SOURCE%
+  echo to see what Obsidian knows about your vaults:
+  echo   test.cmd --list
+  exit /b 2
+)
+if not exist "%VAULT%\.obsidian\" echo note: %VAULT% holds no .obsidian folder, so it may not be a vault
+:vault_resolved
 
 rem ---- fixtures the safety checks need before anything else runs -----------
 set "DEMO=%IMPORTSRC%\skills\cli-demo\SKILL.md"
@@ -105,6 +190,7 @@ pushd "%VAULT%"
 >>"%REPORT%" echo ran %date% %time%
 >>"%REPORT%" echo vault    %VAULT%
 >>"%REPORT%" echo selector %VSEL%
+>>%REPORT% echo source   %VAULT_SOURCE%
 >>"%REPORT%" echo client   %CLIENT%
 >>"%REPORT%" echo root     %ROOT%
 >>"%REPORT%" echo skills   %SKILL_A%, %SKILL_B%, %SKILL_C%
@@ -114,6 +200,7 @@ echo ===========================================================================
 echo  Banshan Skill Hub command line harness
 echo  vault    %VAULT%
 echo  selector %VSEL%
+echo  source   %VAULT_SOURCE%
 echo  root     %ROOT%
 echo ============================================================================
 
@@ -264,6 +351,52 @@ exit /b %FAIL%
 rem ============================================================================
 rem  harness internals
 rem ============================================================================
+
+:parse_args
+if "%~1"=="" goto :eof
+set "ARG=%~1"
+rem both vault=^<vault folder^> and --vault=^<vault folder^> are taken
+if /i "%ARG:~0,2%"=="--" set "ARG=%ARG:~2%"
+if /i "%ARG:~0,1%"=="-" set "ARG=%ARG:~1%"
+set KNOWN=
+if /i "%ARG:~0,6%"=="vault=" (
+  for /f "delims== tokens=1,*" %%k in ("%ARG%") do set "ARG_VAULT=%%l"
+  set KNOWN=yes
+  goto :parse_args_next
+)
+if /i "%ARG%"=="vault" (
+set "ARG_VAULT=%~2"
+  if not defined ARG_VAULT echo note: vault was given without a folder, so it is ignored
+  set KNOWN=yes
+  shift
+  goto :parse_args_next
+)
+if /i "%ARG%"=="list" (
+  set LIST_REQUESTED=yes
+  set KNOWN=yes
+  goto :parse_args_next
+)
+if /i "%ARG%"=="open" (
+  set OPEN_REPORT=yes
+  set KNOWN=yes
+  goto :parse_args_next
+)
+if /i "%ARG%"=="help" (
+  set ARG_HELP=yes
+  set KNOWN=yes
+  goto :parse_args_next
+)
+if /i "%~1"=="/?" (
+  set ARG_HELP=yes
+  set KNOWN=yes
+  goto :parse_args_next
+)
+if defined KNOWN goto :parse_args_next
+echo note: ignoring the argument %~1
+:parse_args_next
+shift
+goto :parse_args
+
 
 :section
 echo.
