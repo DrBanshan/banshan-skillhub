@@ -1,6 +1,7 @@
 import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
+import { registerSkillHubCli, type CliArgs, type CliCommandDefinition, type CliOutcome, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
 import { SkillExportService, type InstallOptions, type InstallSummary } from "./exportService";
 import { createSkillEvent } from "./events";
@@ -61,6 +62,7 @@ export default class SkillHubPlugin extends Plugin {
     this.addCommand({ id: "install-selected-skills", name: "Install selected skills", callback: () => void this.installSelectedSkills() });
     this.addSettingTab(new SkillHubSettingTab(this.app, this));
     this.registerView(VIEW_TYPE_SKILL_HUB, (leaf) => new SkillHubView(leaf, this));
+    this.registerCommandLine();
   }
 
   async saveSkillHubData(): Promise<void> {
@@ -299,6 +301,30 @@ export default class SkillHubPlugin extends Plugin {
     } catch (cleanupError) {
       return combineErrors(error, cleanupError, "staging cleanup failed");
     }
+  }
+
+  /**
+   * Registers the command line surface.
+   * Registration is unconditional so the commands stay discoverable and the gate can report itself:
+   * the command layer rejects capability calls until the cliEnabled setting is on, and the
+   * register-once guard keeps hot reloads from tripping the duplicate command id check.
+   */
+  private registerCommandLine(): void {
+    const bridge: SkillHubCliBridge = {
+      cliEnabled: () => this.data.settings.cliEnabled === true,
+      vaultBasePath: () => this.getVaultBasePath(),
+      rememberedInstallTargets: () => this.knownInstallTargets(),
+      execute: (action: string, args: CliArgs) => this.runCliCommand(action, args)
+    };
+    registerSkillHubCli(this, bridge, this.cliCommandDefinitions());
+  }
+
+  private cliCommandDefinitions(): CliCommandDefinition[] {
+    return [];
+  }
+
+  private async runCliCommand(action: string, args: CliArgs): Promise<CliOutcome> {
+    return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
   }
 
   private getVaultBasePath(): string {
