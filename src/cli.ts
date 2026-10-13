@@ -236,6 +236,22 @@ export function splitSkillSelector(selector: string): string[] | "all" {
   return names.length > 0 ? names : "all";
 }
 
+/**
+ * Decides what may be removed at an install destination.
+ * Links are always safe because removing one never disturbs the vault side source. Anything real is only
+ * removed when the install record proves Skill Hub created it as a copy, so a directory that predates the
+ * install is never swept away.
+ */
+export function uninstallDecision(entry: { state: string; method: string; proven: boolean }): { decision: "removable" | "missing" | "blocked"; reason: string } {
+  if (entry.state === "missing") return { decision: "missing", reason: "nothing is installed there" };
+  if (entry.state === "symlink") return { decision: "removable", reason: "removes the link only, the skill stays in the vault" };
+  if (entry.state === "real") {
+    if (entry.proven && entry.method === "copy") return { decision: "removable", reason: "removes the copy Skill Hub created here" };
+    return { decision: "blocked", reason: "the install record does not prove Skill Hub created this path, so it is left alone" };
+  }
+  return { decision: "blocked", reason: `unsupported destination state ${entry.state}` };
+}
+
 export function renderOutcome(outcome: CliOutcome, format: CliFormat): string {
   if (format === "json") {
     return JSON.stringify({

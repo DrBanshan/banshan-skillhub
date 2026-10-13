@@ -14,6 +14,7 @@ import {
   skillMatches,
   skillRecordRows,
   installTargetViolation,
+  uninstallDecision,
   splitSkillSelector,
   SKILL_ROW_COLUMNS
 } from "../src/cli";
@@ -383,6 +384,27 @@ describe("cli install guards", () => {
   });
 });
 
+describe("cli uninstall decisions", () => {
+  it("always allows removing a link because the vault side source is untouched", () => {
+    expect(uninstallDecision({ state: "symlink", method: "symlink", proven: true }).decision).toBe("removable");
+    expect(uninstallDecision({ state: "symlink", method: "junction", proven: false }).decision).toBe("removable");
+    expect(uninstallDecision({ state: "symlink", method: "symlink", proven: true }).reason).toContain("link");
+  });
+
+  it("only removes a real path when the install record proves it was a copy this plugin made", () => {
+    expect(uninstallDecision({ state: "real", method: "copy", proven: true }).decision).toBe("removable");
+    expect(uninstallDecision({ state: "real", method: "copy", proven: false }).decision).toBe("blocked");
+    expect(uninstallDecision({ state: "real", method: "symlink", proven: true }).decision).toBe("blocked");
+    expect(uninstallDecision({ state: "real", method: "copy", proven: false }).reason).toContain("does not prove");
+  });
+
+  it("reports absent entries and refuses anything else", () => {
+    expect(uninstallDecision({ state: "missing", method: "copy", proven: true }).decision).toBe("missing");
+    expect(uninstallDecision({ state: "other", method: "copy", proven: true }).decision).toBe("blocked");
+    expect(uninstallDecision({ state: "other", method: "copy", proven: true }).reason).toContain("unsupported destination state");
+  });
+});
+
 describe("cli module purity", () => {
   it("is usable without touching the Obsidian runtime", async () => {
     const cliModule = await vi.importActual<typeof import("../src/cli")>("../src/cli");
@@ -402,6 +424,7 @@ describe("cli module purity", () => {
       "skillMatches",
       "skillRecordRows",
       "splitSkillSelector",
+      "uninstallDecision",
       "usageText"
     ]);
   });

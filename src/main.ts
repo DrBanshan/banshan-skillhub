@@ -1,8 +1,8 @@
 import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
-import { lstat, mkdtemp, rm } from "fs/promises";
+import { lstat, mkdtemp, rm, unlink } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
-import { CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
+import { CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
@@ -368,6 +368,15 @@ export default class SkillHubPlugin extends Plugin {
           method: { value: "<copy|symlink|junction>", description: "Link or copy mechanism; defaults to the install method setting" },
           conflict: { value: "<skip|replace-symlinks>", description: "What to do with an existing link; defaults to the conflict setting" }
         }
+      },
+      {
+        action: "uninstall",
+        description: "Remove Skill Hub installs from a target directory, only where the install record proves ownership",
+        destructive: true,
+        flags: {
+          target: { value: "<path>", description: "Directory the skills were installed into; defaults to the remembered target" },
+          skill: { value: "<name|id|all>", description: "Comma separated skill names, or all; defaults to every install recorded for the target" }
+        }
       }
     ];
   }
@@ -380,6 +389,7 @@ export default class SkillHubPlugin extends Plugin {
       case "search": return this.cliSearch(args);
       case "scan": return this.cliScan(args);
       case "install": return this.cliInstall(args);
+      case "uninstall": return this.cliUninstall(args);
       default: return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
     }
   }
@@ -495,12 +505,116 @@ export default class SkillHubPlugin extends Plugin {
     };
   }
 
-  private async cliInstall(args: CliArgs): Promise<CliOutcome> {
-    const records = this.cliSelectRecords(args);
+  private cliTarget(args: CliArgs, action: string): string {
     const target = (args.value("target") ?? this.knownInstallTargets()[0] ?? "").trim();
     if (target.length === 0) {
-      throw new CliError("Missing required parameter target=<path>. Pick an install target once in Skill Hub so it is remembered, or pass target=<path>.");
+      throw new CliError(`Missing required parameter target=<path>. Pick an install target once in Skill Hub so it is remembered, or pass target=<path> before running ${action}.`);
     }
+    return target;
+  }
+
+  private async cliUninstall(args: CliArgs): Promise<CliOutcome> {
+    const target = this.cliTarget(args, "uninstall");
+    const vaultPath = this.getVaultBasePath();
+    await this.assertCliInstallTarget(target, vaultPath);
+    const installed = this.cliInstallRecordsForTarget(target);
+    const requested = splitSkillSelector(args.value("skill") ?? "");
+    const selection = requested === "all"
+      ? installed
+      : installed.filter((entry) => requested.some((name) => this.cliSameSkillName(entry.record, name)));
+
+    if (selection.length === 0) {
+      throw new CliError(installed.length === 0
+        ? `No Skill Hub install record points at ${target}, so nothing is removed. Installs made by earlier versions are deliberately left alone: install again first, or remove those entries by hand.`
+        : `No selected skill is recorded as installed at ${target}. Recorded installs: ${installed.slice(0, 8).map((entry) => entry.record.nickname).join(", ")}${installed.length > 8 ? ", ..." : ""}.`);
+    }
+
+    const rows: CliRow[] = [];
+    const removable: Array<{ record: SkillRecord; destination: string; mechanism: string }> = [];
+    let missing = 0;
+    let blocked = 0;
+    for (const entry of selection) {
+      const destination = this.cliInstallDestination(target, entry.record, "uninstall");
+      const state = await inspectDestination(destination);
+      const verdict = uninstallDecision({ state, method: entry.method, proven: true });
+      rows.push({ name: entry.record.nickname, decision: verdict.decision, destination, mechanism: entry.method, reason: verdict.reason });
+      if (verdict.decision === "removable") removable.push({ record: entry.record, destination, mechanism: entry.method });
+      else if (verdict.decision === "missing") missing += 1;
+      else blocked += 1;
+    }
+
+    if (args.dryrun) {
+      return {
+        action: "uninstall",
+        ok: blocked === 0,
+        message: `dryrun for ${target}: ${removable.length} to remove, ${missing} already absent, ${blocked} left alone`,
+        columns: CLI_INSTALL_COLUMNS,
+        rows,
+        data: { target, dryrun: true, counts: { removable: removable.length, missing, blocked } }
+      };
+    }
+
+    let removed = 0;
+    let failed = 0;
+    for (const entry of removable) {
+      try {
+        if (entry.mechanism === "copy") await rm(entry.destination, { recursive: true, force: true });
+        else await unlink(entry.destination);
+        removed += 1;
+      } catch (error) {
+        failed += 1;
+        const row = rows.find((candidate) => candidate.destination === entry.destination);
+        if (row) {
+          row.decision = "failed";
+          row.reason = error instanceof Error ? error.message : String(error);
+        }
+      }
+    }
+    this.refreshSkillHub();
+    return {
+      action: "uninstall",
+      ok: failed === 0,
+      message: `${target}: removed ${removed}, ${missing} already absent, ${blocked} left alone, ${failed} failed`,
+      columns: CLI_INSTALL_COLUMNS,
+      rows,
+      data: { target, counts: { removed, missing, blocked, failed } }
+    };
+  }
+
+  private cliInstallDestination(target: string, record: SkillRecord, action: string): string {
+    const root = resolve(target);
+    const destination = resolve(join(root, ".agents", "skills", record.folderName));
+    if (!this.isInsideDirectory(root, destination)) {
+      throw new CliError(`Refusing ${action}: ${destination} does not sit inside the requested target.`);
+    }
+    return destination;
+  }
+
+  private cliInstallRecordsForTarget(target: string): Array<{ record: SkillRecord; method: string }> {
+    const wanted = resolve(target);
+    const skills = this.registry.data.skills;
+    const found: Array<{ record: SkillRecord; method: string }> = [];
+    for (const event of this.registry.data.events) {
+      if (event.type !== "skill_installed") continue;
+      const recorded = typeof event.details.targetDir === "string" ? event.details.targetDir : "";
+      if (recorded.length === 0 || resolve(recorded) !== wanted) continue;
+      const record = skills[event.skillId ?? ""];
+      if (!record) continue;
+      if (!found.some((entry) => entry.record.id === record.id)) {
+        found.push({ record, method: typeof event.details.method === "string" ? event.details.method : "symlink" });
+      }
+    }
+    return found.sort((left, right) => left.record.nickname.localeCompare(right.record.nickname));
+  }
+
+  private cliSameSkillName(record: SkillRecord, name: string): boolean {
+    const wanted = name.trim().toLowerCase();
+    return record.id.toLowerCase() === wanted || record.nickname.toLowerCase() === wanted || record.folderName.toLowerCase() === wanted;
+  }
+
+  private async cliInstall(args: CliArgs): Promise<CliOutcome> {
+    const records = this.cliSelectRecords(args);
+    const target = this.cliTarget(args, "install");
     const vaultPath = this.getVaultBasePath();
     const method = this.cliInstallMethod(args);
     const conflictBehavior = this.cliConflictBehavior(args);
@@ -610,7 +724,7 @@ export default class SkillHubPlugin extends Plugin {
     const rows: CliRow[] = [];
     const counts = { installed: 0, replaced: 0, skipped: 0, failed: 0 };
     for (const record of records) {
-      const destination = join(target, ".agents", "skills", record.folderName);
+      const destination = this.cliInstallDestination(target, record, "install");
       try {
         await resolveVaultRelativePath(vaultPath, record.vaultPath, { verifyFilesystem: true });
       } catch (error) {
@@ -642,7 +756,7 @@ export default class SkillHubPlugin extends Plugin {
       return {
         name: record.nickname,
         decision,
-        destination: join(target, ".agents", "skills", record.folderName),
+        destination: this.cliInstallDestination(target, record, "install"),
         mechanism: summary.mechanisms?.[record.id] ?? "",
         reason: failure?.reason ?? ""
       };

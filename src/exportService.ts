@@ -158,6 +158,7 @@ export class SkillExportService {
           this.registry.incrementInstall(record.id, timestamp);
           this.registry.recordEvent(createSkillEvent("skill_installed", record.id, {
             method: options.method,
+            targetDir,
             ...(outcome.mechanism === "junction" ? { linkMechanism: outcome.mechanism } : {})
           }, timestamp));
         }
