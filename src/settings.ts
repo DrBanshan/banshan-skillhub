@@ -67,8 +67,8 @@ export class SkillHubSettingTab extends PluginSettingTab {
           }
         },
         {
-          name: "Enable command line interface",
-          desc: "Allow the Obsidian command line interface to run Skill Hub commands.",
+          name: "Enable Skill Hub command line actions",
+          desc: "Publishes the banshan-skillhub command to the Obsidian command line interface, which you switch on separately under Settings -> General. Skill Hub actions then run without opening a window.",
           control: {
             type: "toggle",
             key: "cliEnabled",

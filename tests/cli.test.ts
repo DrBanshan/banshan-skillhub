@@ -6,10 +6,12 @@ import {
   CliError,
   commandName,
   createCliHandler,
+  needsWriteConfirmation,
   parseCliArgs,
   registerSkillHubCli,
   renderOutcome,
   usageText,
+  writeConfirmationMessage,
   rankSkillMatches,
   skillMatches,
   skillRecordRows,
@@ -108,6 +110,14 @@ describe("cli argument parsing", () => {
     expect(parseCliArgs({ format: "JSON" }).format).toBe("json");
     expect(parseCliArgs({ format: "yaml" }).format).toBe("text");
     expect(parseCliArgs({ json: "true", format: "tsv" }).format).toBe("json");
+  });
+
+  it("recognises the documented flag spellings of the output format request", () => {
+    expect(parseCliArgs({ "--format=json": true }).format).toBe("json");
+    expect(parseCliArgs({ "--format": "json" }).format).toBe("json");
+    expect(parseCliArgs({ "-format": "tsv" }).format).toBe("tsv");
+    expect(parseCliArgs({ "--json": true }).format).toBe("json");
+    expect(parseCliArgs({ "--help": true, format: "tsv" }).format).toBe("tsv");
   });
 
   it("exposes the vault selector and throws a cli error for missing required values", () => {
@@ -413,6 +423,26 @@ describe("cli uninstall decisions", () => {
   });
 });
 
+describe("write confirmation helpers", () => {
+  it("never gates a read behind confirm", () => {
+    expect(needsWriteConfirmation(false, false)).toBe(false);
+    expect(needsWriteConfirmation(false, true)).toBe(false);
+  });
+
+  it("requires confirm for a write and accepts it once given", () => {
+    expect(needsWriteConfirmation(true, false)).toBe(true);
+    expect(needsWriteConfirmation(true, true)).toBe(false);
+  });
+
+  it("names the command and both escapes in the same wording the obsidian command line uses for writes", () => {
+    const message = writeConfirmationMessage("banshan-skillhub:settings");
+    expect(message).toContain("banshan-skillhub:settings");
+    expect(message).toContain("removes or overwrites entries");
+    expect(message).toContain("Re-run with confirm=1");
+    expect(message).toContain("dryrun=1");
+  });
+});
+
 describe("cli module purity", () => {
   it("is usable without touching the Obsidian runtime", async () => {
     const cliModule = await vi.importActual<typeof import("../src/cli")>("../src/cli");
@@ -426,6 +456,7 @@ describe("cli module purity", () => {
       "commandName",
       "createCliHandler",
       "installTargetViolation",
+      "needsWriteConfirmation",
       "parseCliArgs",
       "rankSkillMatches",
       "registerSkillHubCli",
@@ -434,7 +465,8 @@ describe("cli module purity", () => {
       "skillRecordRows",
       "splitSkillSelector",
       "uninstallDecision",
-      "usageText"
+      "usageText",
+      "writeConfirmationMessage"
     ]);
   });
 });

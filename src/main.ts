@@ -2,7 +2,7 @@ import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian
 import { lstat, mkdtemp, rm, unlink } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
-import { applyUninstallPlan, CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type UninstallCandidate, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
+import { applyUninstallPlan, CliError, commandName, installTargetViolation, needsWriteConfirmation, writeConfirmationMessage, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type UninstallCandidate, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
@@ -411,7 +411,6 @@ export default class SkillHubPlugin extends Plugin {
       {
         action: "order",
         description: "Read or set the curated skill ordering used by the custom sort",
-        destructive: true,
         flags: {
           list: { value: "<name|id,...>", description: "Proposed order; omit to read the current one" }
         }
@@ -419,7 +418,6 @@ export default class SkillHubPlugin extends Plugin {
       {
         action: "settings",
         description: "Read or set a single Skill Hub setting",
-        destructive: true,
         flags: {
           key: { value: "<name>", description: "Setting name; omit to list every reported setting" },
           value: { value: "<value>", description: "New value; required to change a setting" }
@@ -521,6 +519,9 @@ export default class SkillHubPlugin extends Plugin {
       return { action: "order", ok: true, message: `${rows.length} curated entries`, columns: ["position", "skill"], rows, data: { order: this.data.settings.skillOrder } };
     }
     const proposed = this.cliResolveOrder(list);
+    if (needsWriteConfirmation(true, args.confirm) && !args.dryrun) {
+      throw new CliError(writeConfirmationMessage(commandName("order")));
+    }
     if (args.dryrun) {
       return { action: "order", ok: true, message: `dryrun: the curated order would become ${proposed.ids.length} entries`, columns: ["position", "skill"], rows: proposed.rows, data: { dryrun: true, order: proposed.ids } };
     }
@@ -558,6 +559,9 @@ export default class SkillHubPlugin extends Plugin {
     }
     if (match.protected === true) {
       throw new CliError(`${match.key} cannot be changed from the command line. Turn it on under Settings -> Community plugins -> Skill Hub.`);
+    }
+    if (needsWriteConfirmation(true, args.confirm) && !args.dryrun) {
+      throw new CliError(writeConfirmationMessage(commandName("settings")));
     }
     const applied = this.cliApplySetting(match.key, proposed);
     await this.saveSkillHubData();

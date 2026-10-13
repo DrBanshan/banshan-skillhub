@@ -78,11 +78,11 @@ Symlink creation depends on OS permissions. On Windows, Developer Mode or elevat
 
 ### Command Line Interface
 
-Turn on **Enable command line interface** in the Skill Hub settings (it ships switched off) and Obsidian registers the plugin with its command line interface. Every action then runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
+Turn on **Enable Skill Hub command line actions** in the Skill Hub settings (it ships switched off), with Obsidian's own **Settings -> General -> Command line interface** already enabled on the 1.12.7 or newer installer. The plugin then publishes its actions to the Obsidian command line, and every one of them runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
 
 ```bash
 obsidian banshan-skillhub
-obsidian banshan-skillhub:info vault=MyVault
+obsidian vault=MyVault banshan-skillhub:info
 obsidian banshan-skillhub:list tag=writer sort=updated limit=20
 obsidian banshan-skillhub:show skill=find-skills format=json
 obsidian banshan-skillhub:search query=frontmatter
@@ -116,12 +116,12 @@ The bare command prints the full action list with every flag.
 
 A few rules hold across the whole interface:
 
-- Arguments are always `key=value` pairs, so a value that begins with a dash is never mistaken for an option.
-- `format=json` prints one machine readable object instead of the aligned tables, and `dryrun=1` reports what an action would do while leaving the filesystem alone.
+- Arguments are always `key=value` pairs, so a value that begins with a dash is never mistaken for an option. A `vault=` selector, if you need one, has to come before the command: `obsidian vault=MyVault banshan-skillhub:list`.
+- `--format=json`, or the shorter `--json`, prints one machine readable object instead of the aligned tables, and `dryrun=1` reports what an action would do while leaving the filesystem alone.
 - Actions that delete or rewrite shared state (`uninstall`, `order`, `settings`) refuse to run until you add `confirm=1`, both here and in the user interface.
 - `uninstall` only touches what an install recorded: a link is removed without disturbing the vault copy it pointed at, and a copied folder is deleted only when the record shows it arrived as a copy. Anything else is reported and left alone.
 - A target that is a drive root, your home directory, or anywhere inside the vault is refused, so an install can never nest `.agents` inside the vault.
-- `Enable command line interface` and `Enable npx execution` cannot be changed from the command line; they are switched on in settings so a person always grants those permissions.
+- `Enable Skill Hub command line actions` and `Enable npx execution` cannot be changed from the command line; they are switched on in settings so a person always grants those permissions.
 - A refused command prints a line starting with `ERROR:`; under `format=json` the object carries `ok: false` and a `message`.
 
 ## How To Use
@@ -144,7 +144,7 @@ Skill Hub settings include:
 - **Install method:** Copy or symlink.
 - **Default sort:** Nickname, original name, recently updated, or custom drag order.
 - **Enable npx execution:** Controls whether Skill Hub can run `npx skills add ...` directly.
-- **Enable command line interface:** Publishes the `banshan-skillhub` command so scripts and agent CLIs can import, install, and inspect without opening a window. Off by default, and never switched on from the command line itself.
+- **Enable Skill Hub command line actions:** Publishes the `banshan-skillhub` command so scripts and agent CLIs can import, install, and inspect without opening a window. Off by default, and never switched on from the command line itself.
 - **Symlink conflict behavior:** Skip or overwrite existing symlinks.
 
 ## Notes And Limitations

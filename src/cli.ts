@@ -14,7 +14,7 @@ export type { CliData, CliFlags, CliHandler } from "obsidian";
 export const CLI_COMMAND_PREFIX = "banshan-skillhub";
 export const CLI_ERROR_PREFIX = "ERROR: ";
 export const CLI_DISABLED_MESSAGE =
-  "Skill Hub command line support is off. Enable it in Settings -> Community plugins -> Skill Hub -> Enable command line interface.";
+  "Skill Hub command line support is off. Enable it in Settings -> Community plugins -> Skill Hub -> Enable Skill Hub command line actions.";
 
 export type CliFormat = "text" | "json" | "tsv";
 
@@ -80,10 +80,29 @@ function isTruthyParam(value: string | boolean | undefined): boolean {
 }
 
 function normalizeFormat(raw: Readonly<Record<string, string | boolean>>): CliFormat {
+  const declared = declaredFormat(raw);
+  if (declared) return declared;
   if (isTruthyParam(raw.json)) return "json";
-  const declared = typeof raw.format === "string" ? raw.format.toLowerCase() : undefined;
-  if (declared === "json" || declared === "tsv" || declared === "text") return declared;
+  const plain = typeof raw.format === "string" ? raw.format.toLowerCase() : undefined;
+  if (plain === "json" || plain === "tsv" || plain === "text") return plain;
   return "text";
+}
+
+// The Obsidian command line documents its output format as a flag, so a request can arrive spelled as
+// --format=json, --json, or, where the token keeps its dashes, with the value folded into the key itself.
+// Recognising every shape keeps one spelling working whichever way the command line hands it over.
+function declaredFormat(raw: Readonly<Record<string, string | boolean>>): CliFormat | undefined {
+  for (const key of Object.keys(raw)) {
+    const name = key.replace(/^-+/, "").toLowerCase();
+    const split = name.indexOf("=");
+    const head = split >= 0 ? name.slice(0, split) : name;
+    const carried = split >= 0 ? name.slice(split + 1) : undefined;
+    if (head === "json") return "json";
+    if (head !== "format") continue;
+    const wanted = String(carried ?? (typeof raw[key] === "string" ? raw[key] : "")).toLowerCase();
+    if (wanted === "json" || wanted === "tsv" || wanted === "text") return wanted;
+  }
+  return undefined;
 }
 
 function isPositionalKey(key: string): boolean {
@@ -294,6 +313,17 @@ export function renderOutcome(outcome: CliOutcome, format: CliFormat): string {
 
 export function commandName(action: string): string {
   return action.length === 0 ? CLI_COMMAND_PREFIX : `${CLI_COMMAND_PREFIX}:${action}`;
+}
+
+// Reads of an action must never be gated; only the write half of one is. The wording follows what the
+// Obsidian command line documentation uses for its own write commands so scripted callers can match one
+// message shape across the tool.
+export function writeConfirmationMessage(command: string): string {
+  return `${command} removes or overwrites entries. Re-run with confirm=1 to apply, or dryrun=1 to preview what would change.`;
+}
+
+export function needsWriteConfirmation(changing: boolean, confirmed: boolean): boolean {
+  return changing && !confirmed;
 }
 
 export interface UninstallCandidate {
