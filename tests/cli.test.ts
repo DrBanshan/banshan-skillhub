@@ -112,6 +112,16 @@ describe("cli argument parsing", () => {
     expect(parseCliArgs({ json: "true", format: "tsv" }).format).toBe("json");
   });
 
+  it("binds a parameter under its plain name whichever flag spelling the command line used", () => {
+    expect(parseCliArgs({ "--skill=writer": true }).value("skill")).toBe("writer");
+    expect(parseCliArgs({ "--skill": "writer" }).value("skill")).toBe("writer");
+    expect(parseCliArgs({ "-target": "D:/tmp/agent" }).value("target")).toBe("D:/tmp/agent");
+    expect(parseCliArgs({ "skill=writer": true }).value("skill")).toBe("writer");
+    expect(parseCliArgs({ "--dryrun": true }).dryrun).toBe(true);
+    expect(parseCliArgs({ "--confirm=1": true }).confirm).toBe(true);
+    expect(parseCliArgs({ skill: "writer", "--skill": "other" }).value("skill")).toBe("writer");
+  });
+
   it("recognises the documented flag spellings of the output format request", () => {
     expect(parseCliArgs({ "--format=json": true }).format).toBe("json");
     expect(parseCliArgs({ "--format": "json" }).format).toBe("json");

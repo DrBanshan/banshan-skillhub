@@ -114,10 +114,35 @@ function copyParams(params: CliData | Record<string, string | true | undefined>)
   for (const key of Object.keys(params)) {
     if (isPositionalKey(key)) continue;
     const value = params[key];
-    if (typeof value === "string") copied[key] = value;
-    else if (value === true) copied[key] = true;
+    for (const name of parameterNames(key)) {
+      if (typeof value === "string") {
+        if (copied[name] === undefined) copied[name] = value;
+        continue;
+      }
+      if (value !== true) continue;
+      const folded = foldInlineValue(name);
+      if (folded) {
+        if (copied[folded[0]] === undefined) copied[folded[0]] = folded[1];
+      } else if (copied[name] === undefined) {
+        copied[name] = true;
+      }
+    }
   }
   return copied;
+}
+
+// A parameter can reach the plugin as `name=value`, as `--name=value`, or as one token that kept both its
+// dashes and its value. Every spelling has to land under the plain name the action reads, so the aliases are
+// registered side by side instead of guessing at one form.
+function parameterNames(key: string): string[] {
+  const stripped = key.replace(/^-+/, "");
+  return stripped === key ? [key] : [key, stripped];
+}
+
+function foldInlineValue(name: string): [string, string] | undefined {
+  const split = name.indexOf("=");
+  if (split <= 0) return undefined;
+  return [name.slice(0, split), name.slice(split + 1)];
 }
 
 export function parseCliArgs(params: CliData | Record<string, string | true | undefined>): CliArgs {
