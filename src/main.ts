@@ -388,6 +388,38 @@ export default class SkillHubPlugin extends Plugin {
           target: { value: "<path>", description: "Directory the skills were installed into; defaults to the remembered target" },
           skill: { value: "<name|id|all>", description: "Comma separated skill names, or all; defaults to every install recorded for the target" }
         }
+      },
+      {
+        action: "import",
+        description: "Import skills discovered in a local directory",
+        mutating: true,
+        flags: {
+          path: { value: "<path>", description: "Directory holding a skills folder", required: true },
+          skill: { value: "<folder|all>", description: "Comma separated folder names, or all; defaults to all discovered skills" },
+          method: { value: "<copy|symlink>", description: "How imported skills are stored; defaults to copy" },
+          staging: { value: "<path>", description: "Scratch directory, which must sit outside the vault" }
+        }
+      },
+      {
+        action: "refresh",
+        description: "Reopen every open Skill Hub view"
+      },
+      {
+        action: "order",
+        description: "Read or set the curated skill ordering used by the custom sort",
+        destructive: true,
+        flags: {
+          list: { value: "<name|id,...>", description: "Proposed order; omit to read the current one" }
+        }
+      },
+      {
+        action: "settings",
+        description: "Read or set a single Skill Hub setting",
+        destructive: true,
+        flags: {
+          key: { value: "<name>", description: "Setting name; omit to list every reported setting" },
+          value: { value: "<value>", description: "New value; required to change a setting" }
+        }
       }
     ];
   }
@@ -402,7 +434,164 @@ export default class SkillHubPlugin extends Plugin {
       case "install": return this.cliInstall(args);
       case "link": return this.cliLink(args);
       case "uninstall": return this.cliUninstall(args);
+      case "import": return this.cliImport(args);
+      case "refresh": return this.cliRefresh(args);
+      case "order": return this.cliOrder(args);
+      case "settings": return this.cliSettings(args);
       default: return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
+    }
+  }
+
+  private async cliImport(args: CliArgs): Promise<CliOutcome> {
+    const path = args.required("path");
+    const sourceKind = (args.value("source") ?? "local").trim().toLowerCase();
+    if (sourceKind !== "local") {
+      throw new CliError(`Command line imports cover local directories only, not ${sourceKind}. Use the GitHub import or the npx flow inside Skill Hub for the other sources.`);
+    }
+    const method = (args.value("method") ?? "copy").trim().toLowerCase();
+    if (method !== "copy" && method !== "symlink") throw new CliError(`Unknown method ${method}. Imports support copy or symlink.`);
+    const staging = (args.value("staging") ?? "").trim();
+    if (staging.length > 0) {
+      const violation = installTargetViolation(staging, this.getVaultBasePath(), homedir());
+      if (violation) throw new CliError(`Staging directory is not usable: ${violation}`);
+    }
+    const selection = splitSkillSelector(args.value("skill") ?? "*");
+
+    if (args.dryrun) {
+      const discovered = await discoverSkills(path);
+      if (discovered.missingSkillsFolder) {
+        return { action: "import", ok: false, message: formatMissingSkillsFolderMessage(), data: { path, missingSkillsFolder: true } };
+      }
+      const chosen = selection === "all"
+        ? discovered.skills
+        : discovered.skills.filter((skill) => selection.some((name) => name.toLowerCase() === skill.folderName.toLowerCase()));
+      return {
+        action: "import",
+        ok: true,
+        message: `dryrun: ${chosen.length} of ${discovered.skills.length} skills under ${path} would be imported via ${method}`,
+        columns: ["folder", "name", "description", "warnings"],
+        rows: chosen.map((skill) => ({ folder: skill.folderName, name: skill.metadata.name, description: skill.metadata.description, warnings: skill.warnings.join("; ") })),
+        data: { path, method, dryrun: true, unreadable: discovered.warnings.length }
+      };
+    }
+
+    const result = await this.importDirectoryHeadless(path, { type: "local", path }, "local", selection === "all" ? "*" : selection, staging.length > 0 ? staging : undefined);
+    return {
+      action: "import",
+      ok: true,
+      message: `imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"} from ${path}`,
+      columns: SKILL_ROW_COLUMNS,
+      rows: skillRecordRows(result.imported),
+      data: { path, method, imported: result.imported.map((record) => record.id) }
+    };
+  }
+
+  private cliRefresh(args: CliArgs): CliOutcome {
+    this.refreshSkillHub();
+    return {
+      action: "refresh",
+      ok: true,
+      message: "open Skill Hub views were redrawn from the registry",
+      data: { skills: Object.keys(this.registry.data.skills).length }
+    };
+  }
+
+  private async cliOrder(args: CliArgs): Promise<CliOutcome> {
+    const list = args.value("list");
+    if (list === undefined) {
+      const rows = this.data.settings.skillOrder.map((id, index) => ({ position: index + 1, skill: this.registry.data.skills[id]?.nickname ?? id }));
+      return { action: "order", ok: true, message: `${rows.length} curated entries`, columns: ["position", "skill"], rows, data: { order: this.data.settings.skillOrder } };
+    }
+    const proposed = this.cliResolveOrder(list);
+    if (args.dryrun) {
+      return { action: "order", ok: true, message: `dryrun: the curated order would become ${proposed.ids.length} entries`, columns: ["position", "skill"], rows: proposed.rows, data: { dryrun: true, order: proposed.ids } };
+    }
+    this.data.settings.skillOrder = proposed.ids;
+    await this.saveSkillHubData();
+    this.refreshSkillHub();
+    return { action: "order", ok: true, message: `curated order set to ${proposed.ids.length} entries`, columns: ["position", "skill"], rows: proposed.rows, data: { order: proposed.ids } };
+  }
+
+  private cliResolveOrder(list: string): { ids: string[]; rows: CliRow[] } {
+    const ids: string[] = [];
+    const rows: CliRow[] = [];
+    for (const name of list.split(",").map((part) => part.trim()).filter((part) => part.length > 0)) {
+      const found = this.cliFindRecord(name);
+      if (!found) throw new CliError(`No skill named ${name} is in the registry, so the curated order was not changed.`);
+      if (ids.includes(found.id)) continue;
+      ids.push(found.id);
+      rows.push({ position: ids.length, skill: found.nickname });
+    }
+    if (ids.length === 0) throw new CliError("Missing a non empty list=<name|id,...> value.");
+    return { ids, rows };
+  }
+
+  private async cliSettings(args: CliArgs): Promise<CliOutcome> {
+    const reported = this.cliReportedSettings();
+    const key = (args.value("key") ?? "").trim();
+    if (key.length === 0) {
+      return { action: "settings", ok: true, message: `${reported.length} settings`, columns: ["property", "value"], rows: reported.map((entry) => ({ property: entry.key, value: entry.value })) };
+    }
+    const match = reported.find((entry) => entry.key.toLowerCase() === key.toLowerCase());
+    if (!match) throw new CliError(`Unknown setting ${key}. Reported settings: ${reported.map((entry) => entry.key).join(", ")}.`);
+    const proposed = args.value("value");
+    if (proposed === undefined) {
+      return { action: "settings", ok: true, columns: ["property", "value"], rows: [{ property: match.key, value: match.value }] };
+    }
+    if (match.protected === true) {
+      throw new CliError(`${match.key} cannot be changed from the command line. Turn it on under Settings -> Community plugins -> Skill Hub.`);
+    }
+    const applied = this.cliApplySetting(match.key, proposed);
+    await this.saveSkillHubData();
+    this.refreshSkillHub();
+    return { action: "settings", ok: true, message: `${match.key} set to ${applied}`, columns: ["property", "value"], rows: [{ property: match.key, value: applied }] };
+  }
+
+  private cliReportedSettings(): Array<{ key: string; value: string; protected?: boolean }> {
+    const settings = this.data.settings;
+    return [
+      { key: "skillFolder", value: settings.skillFolder },
+      { key: "installMethod", value: settings.installMethod },
+      { key: "defaultSort", value: settings.defaultSort },
+      { key: "defaultSymlinkConflictBehavior", value: settings.defaultSymlinkConflictBehavior },
+      { key: "cliEnabled", value: String(settings.cliEnabled === true), protected: true },
+      { key: "npxExecutionEnabled", value: String(settings.npxExecutionEnabled), protected: true }
+    ];
+  }
+
+  private cliApplySetting(key: string, proposed: string): string {
+    const settings = this.data.settings;
+    const value = proposed.trim();
+    switch (key) {
+      case "skillFolder": {
+        const next = value.length > 0 ? value : DEFAULT_SETTINGS.skillFolder;
+        try {
+          resolveVaultRelativePath("/vault", next);
+        } catch (error) {
+          throw new CliError(`Rejected skill folder ${value}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        settings.skillFolder = next;
+        return next;
+      }
+      case "installMethod": {
+        if (value !== "symlink" && value !== "copy") throw new CliError(`Unknown installMethod ${value}. Use symlink or copy.`);
+        settings.installMethod = value;
+        return value;
+      }
+      case "defaultSort": {
+        if (value !== "nickname" && value !== "originalName" && value !== "updatedAt" && value !== "custom") {
+          throw new CliError(`Unknown defaultSort ${value}. Use nickname, originalName, updatedAt or custom.`);
+        }
+        settings.defaultSort = value;
+        return value;
+      }
+      case "defaultSymlinkConflictBehavior": {
+        if (value !== "skip" && value !== "overwrite") throw new CliError(`Unknown defaultSymlinkConflictBehavior ${value}. Use skip or overwrite.`);
+        settings.defaultSymlinkConflictBehavior = value;
+        return value;
+      }
+      default:
+        throw new CliError(`${key} cannot be changed from the command line.`);
     }
   }
 
