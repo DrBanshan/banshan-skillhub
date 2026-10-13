@@ -1,6 +1,6 @@
 {
   "name": "banshan-skillhub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Skill Hub plugin for importing, organizing, and installing local AI agent skills.",
   "main": "main.js",
   "scripts": {
