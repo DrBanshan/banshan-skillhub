@@ -464,7 +464,12 @@ export function createCliHandler(
 
       const outcome = await bridge.execute(definition.action, args);
       if (!outcome || typeof outcome.action !== "string") throw new CliError(`${commandName(definition.action)} produced no result.`);
-      return renderOutcome({ ...outcome, action: outcome.action || definition.action }, args.format);
+      const rendered = renderOutcome({ ...outcome, action: outcome.action || definition.action }, args.format);
+      if (outcome.ok !== false) return rendered;
+      // A failed outcome still has to read as a failure. Json carries ok false on its own, while the
+      // text renderers print the message as the first line, which is where the marker belongs.
+      if (args.format === "json") return rendered;
+      return rendered.startsWith(CLI_ERROR_PREFIX) ? rendered : `${CLI_ERROR_PREFIX}${rendered}`;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const args = safeParse(params);
