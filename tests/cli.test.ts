@@ -9,8 +9,13 @@ import {
   parseCliArgs,
   registerSkillHubCli,
   renderOutcome,
-  usageText
+  usageText,
+  rankSkillMatches,
+  skillMatches,
+  skillRecordRows,
+  SKILL_ROW_COLUMNS
 } from "../src/cli";
+import type { SkillRecord } from "../src/types";
 import type { CliCommandDefinition, CliFlags, CliHandler, SkillHubCliBridge } from "../src/cli";
 
 interface Registration {
@@ -45,6 +50,25 @@ function createBridge(overrides: Partial<SkillHubCliBridge> = {}): SkillHubCliBr
   };
 }
 
+function createSkill(id: string, overrides: Partial<SkillRecord> = {}): SkillRecord {
+  return {
+    id,
+    folderName: id,
+    vaultPath: `Skill/${id}`,
+    originalName: id,
+    nickname: id,
+    description: "",
+    tags: [],
+    collectionIds: [],
+    source: { type: "local", path: `/tmp/${id}` },
+    importMethod: "local",
+    warnings: [],
+    importedAt: "2026-07-22T00:00:00.000Z",
+    updatedAt: "2026-07-22T00:00:00.000Z",
+    installCount: 0,
+    ...overrides
+  };
+}
 const capability: CliCommandDefinition = { action: "list", description: "List skills" };
 const gated: CliCommandDefinition = { action: "info", description: "Report environment", readonlyGate: true };
 const destructive: CliCommandDefinition = { action: "uninstall", description: "Remove installed entries", destructive: true };
@@ -283,6 +307,47 @@ describe("cli registration", () => {
   });
 });
 
+describe("cli skill helpers", () => {
+  const writer = createSkill("writer", { tags: ["docs", "writing"], description: "Drafts documents", installCount: 3 });
+  const reviewer = createSkill("reviewer", { nickname: "code reviewer", originalName: "ReviewBot", installCount: 7, source: { type: "github", url: "https://gitlab.example/acme/reviewer" }, importMethod: "github" });
+  const planner = createSkill("planner", { tags: ["docs"], installCount: 7, source: { type: "npx", command: "npx skills add acme/planner" }, importMethod: "npx" });
+  const all = [writer, reviewer, planner];
+
+  it("matches across nickname, tags, description and the recorded import source", () => {
+    expect(skillMatches(reviewer, "review", "")).toBe(true);
+    expect(skillMatches(reviewer, "reviewbot", "")).toBe(true);
+    expect(skillMatches(writer, "drafts", "")).toBe(true);
+    expect(skillMatches(writer, "writing", "")).toBe(true);
+    expect(skillMatches(planner, "acme/planner", "")).toBe(true);
+    expect(skillMatches(writer, "REVIEW", "")).toBe(false);
+    expect(skillMatches(writer, "", "")).toBe(true);
+  });
+
+  it("narrows results by import source without regard to letter case", () => {
+    expect(all.filter((record) => skillMatches(record, "", "github")).map((record) => record.id)).toEqual(["reviewer"]);
+    expect(all.filter((record) => skillMatches(record, "docs", "NPX")).map((record) => record.id)).toEqual(["planner"]);
+    expect(all.filter((record) => skillMatches(record, "", "missing-source"))).toEqual([]);
+  });
+
+  it("ranks exact nicknames first, then install count, then name", () => {
+    const docs = createSkill("docs", { tags: ["documentation"] });
+    const pool = [writer, reviewer, planner, docs];
+    const docsMatches = pool.filter((record) => skillMatches(record, "docs", ""));
+    expect(docsMatches.map((record) => record.id)).toEqual(["writer", "planner", "docs"]);
+    expect(rankSkillMatches(docsMatches, "docs").map((record) => record.id)).toEqual(["docs", "planner", "writer"]);
+    expect(rankSkillMatches(pool.filter((record) => skillMatches(record, "code reviewer", "")), "code reviewer").map((record) => record.id)).toEqual(["reviewer"]);
+    expect(rankSkillMatches(pool, "").map((record) => record.id)).toEqual(["reviewer", "planner", "writer", "docs"]);
+    expect(rankSkillMatches(pool, "")).not.toBe(pool);
+  });
+
+  it("shapes rows in the shared column order", () => {
+    const rows = skillRecordRows([reviewer]);
+    expect(Object.keys(rows[0])).toEqual(SKILL_ROW_COLUMNS.slice());
+    expect(rows[0]).toMatchObject({ name: "code reviewer", original: "ReviewBot", source: "github", imported: "github", installs: 7 });
+    expect(skillRecordRows([])).toEqual([]);
+  });
+});
+
 describe("cli module purity", () => {
   it("is usable without touching the Obsidian runtime", async () => {
     const cliModule = await vi.importActual<typeof import("../src/cli")>("../src/cli");
@@ -291,11 +356,15 @@ describe("cli module purity", () => {
       "CLI_DISABLED_MESSAGE",
       "CLI_ERROR_PREFIX",
       "CliError",
+      "SKILL_ROW_COLUMNS",
       "commandName",
       "createCliHandler",
       "parseCliArgs",
+      "rankSkillMatches",
       "registerSkillHubCli",
       "renderOutcome",
+      "skillMatches",
+      "skillRecordRows",
       "usageText"
     ]);
   });

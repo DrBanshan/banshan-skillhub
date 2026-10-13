@@ -1,4 +1,5 @@
 import type { CliData, CliFlags, CliHandler } from "obsidian";
+import type { SkillRecord } from "./types";
 
 export type { CliData, CliFlags, CliHandler } from "obsidian";
 
@@ -148,6 +149,55 @@ function columnOrder(outcome: CliOutcome): string[] {
     }
   }
   return seen;
+}
+
+export const SKILL_ROW_COLUMNS = ["name", "original", "folder", "tags", "source", "imported", "installs", "updatedAt"];
+
+function skillHaystack(record: SkillRecord): string {
+  return [
+    record.nickname,
+    record.originalName,
+    record.folderName,
+    record.description,
+    record.tags.join(" "),
+    record.source.path ?? "",
+    record.source.url ?? "",
+    record.source.command ?? ""
+  ].join(" ").toLowerCase();
+}
+
+/** Case-insensitive substring match over the fields an agent would type; an empty filter matches everything. */
+export function skillMatches(record: SkillRecord, filter: string, source: string): boolean {
+  const wantedSource = source.trim().toLowerCase();
+  if (wantedSource.length > 0 && record.source.type !== wantedSource) return false;
+  const wanted = filter.trim().toLowerCase();
+  if (wanted.length === 0) return true;
+  return skillHaystack(record).includes(wanted);
+}
+
+/** Exact nickname hits first, then the most installed, then alphabetical so output stays stable between runs. */
+export function rankSkillMatches(records: readonly SkillRecord[], query: string): SkillRecord[] {
+  const wanted = query.trim().toLowerCase();
+  return records.slice().sort((left, right) => {
+    const leftExact = left.nickname.toLowerCase() === wanted ? 0 : 1;
+    const rightExact = right.nickname.toLowerCase() === wanted ? 0 : 1;
+    if (leftExact !== rightExact) return leftExact - rightExact;
+    if (right.installCount !== left.installCount) return right.installCount - left.installCount;
+    return left.nickname.localeCompare(right.nickname);
+  });
+}
+
+export function skillRecordRows(records: readonly SkillRecord[]): CliRow[] {
+  return records.map((record) => ({
+    name: record.nickname,
+    original: record.originalName,
+    folder: record.folderName,
+    tags: record.tags.join(", "),
+    source: record.source.type,
+    imported: record.importMethod,
+    installs: record.installCount,
+    updatedAt: record.updatedAt
+  }));
 }
 
 export function renderOutcome(outcome: CliOutcome, format: CliFormat): string {
