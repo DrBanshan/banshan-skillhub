@@ -88,7 +88,7 @@ obsidian banshan-skillhub:show skill=find-skills format=json
 obsidian banshan-skillhub:search query=frontmatter
 obsidian banshan-skillhub:scan path=C:\work\skills
 obsidian banshan-skillhub:install skill=find-skills target=C:\work\agent method=symlink
-obsidian banshan-skillhub:install collection=research target=C:\work\agent
+obsidian banshan-skillhub:install skill=all collection=research target=C:\work\agent
 obsidian banshan-skillhub:link skill=find-skills target=C:\work\agent
 obsidian banshan-skillhub:uninstall target=C:\work\agent confirm=1
 obsidian banshan-skillhub:import path=C:\work\skills
@@ -102,17 +102,18 @@ The bare command prints the full action list with every flag.
 | Action | Purpose |
 | --- | --- |
 | `info` | Reports the plugin version, vault, counts, and settings state, including whether the interface is switched on |
-| `list` | Lists skills with `tag=`, `collection=`, `sort=`, and `limit=` |
+| `list` | Lists skills, optionally narrowed by `filter=` against the name, tags or description, and by `source=local`, `source=github` or `source=npx` |
 | `show` | Prints one skill: files, metadata, tags, collections, source, install count |
 | `search` | Ranks matches across name, description, tags, and nickname |
 | `scan` | Discovers skills in a directory, with the `skills/` fallback, without importing anything |
-| `install` | Installs `skill=`, `collection=`, or `skill=all` into `<target>\.agents\skills` using `method=symlink` or `method=copy` |
+| `install` | Installs `skill=a,b`, a whole collection with `skill=all collection=<name>`, or everything with `skill=all`, into `<target>\.agents\skills` using `method=symlink` or `method=copy` |
 | `link` | Links one skill, with a junction fallback, and `force=1` replaces an existing link |
 | `uninstall` | Removes installs the activity log proves Skill Hub made: links are unlinked, copies are deleted |
 | `import` | Discovers and imports skills from a local directory |
 | `order` | Reads the curated ordering, or sets it with `list=a,b,c` |
 | `settings` | Reads any setting, and writes ordinary ones with the same validation the settings tab applies |
 | `refresh` | Redraws every open Skill Hub view |
+| `probe` | Echoes the parameters that reached the plugin, for diagnosing how a command line is being handed over |
 
 A few rules hold across the whole interface:
 
