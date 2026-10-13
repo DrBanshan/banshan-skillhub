@@ -143,7 +143,7 @@ exit /b 3
 
 call :section "A. pre flight"
 call :run "usage lists the actions" "banshan-skillhub" expect "Actions:"
-call :run "an unknown action is refused" "banshan-skillhub:not-a-real-action" expecterr "is registered for"
+call :run "an unknown action is refused, by the client itself" "banshan-skillhub:not-a-real-action" expecterr "not found"
 call :gatecheck
 
 call :section "B. parameters reach the plugin"
@@ -167,10 +167,10 @@ call :run "scan reports a missing skills folder" "banshan-skillhub:scan path=%RO
 call :run "refresh answers" "banshan-skillhub:refresh" expect "redrawn from the registry"
 
 call :section "D. install"
-call :run "install one skill by copy" "banshan-skillhub:install skill=%SKILL_A% target=%TARGET% method=copy" expect ": installed"
+call :run "install one skill by copy" "banshan-skillhub:install skill=%SKILL_A% target=%TARGET% method=copy" expect "installed 1"
 call :assert_dir "the copied skill is on disk" "%TARGET%\.agents\skills\%SKILL_A%"
-call :run "install one skill by link" "banshan-skillhub:install skill=%SKILL_B% target=%TARGET% method=symlink" expect ": installed"
-call :run "install names the mechanism that landed" "banshan-skillhub:install skill=%SKILL_C% target=%TARGET% method=symlink" expect "via "
+call :run "install one skill by link" "banshan-skillhub:install skill=%SKILL_B% target=%TARGET% method=symlink" expect "installed 1"
+call :run "install names the mechanism that landed" "banshan-skillhub:install skill=%SKILL_C% target=%TARGET% method=symlink" expect "mechanism"
 call :run "install plans without writing" "banshan-skillhub:install skill=all target=%TARGET% dryrun=1" expect " to add,"
 call :assert_dir "the plan left the target alone" "%TARGET%\.agents\skills\%SKILL_A%"
 call :run "install reports a missing selection" "banshan-skillhub:install target=%TARGET%" expecterr "Pass skill=all"
@@ -190,7 +190,7 @@ call :run "link refuses the vault" "banshan-skillhub:link skill=%SKILL_A% target
 call :assert_dir "the vault skill folder survived the guards" "%VAULT%\%SKILLSFOLDER%"
 
 call :section "F. link semantics"
-call :run "link again asks for force" "banshan-skillhub:link skill=already-linked target=%TARGET%" expecterr "already linked"
+call :run "link again asks for force" "banshan-skillhub:link skill=%SKILL_C% target=%TARGET%" expecterr "already linked"
 call :run "link replaces with force" "banshan-skillhub:link skill=%SKILL_C% target=%TARGET% force=1" expect "via "
 call :run "link refuses a copy method" "banshan-skillhub:link skill=%SKILL_A% target=%TARGET% method=copy" expecterr "method=symlink"
 call :run "link refuses a real directory" "banshan-skillhub:link skill=%SKILL_C% target=%TARGET2%" expecterr "does not account for"

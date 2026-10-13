@@ -186,6 +186,23 @@ The build writes the plugin to:
 
 It also syncs the root `main.js` bundle for release tracking.
 
+### Testing the command line actions
+
+`test.cmd` at the repo root drives every registered action through the `obsidian` client and judges
+each reply, the filesystem, or both, over seventy six checks. Edit the values in its `EDIT` block,
+keep Obsidian open with the vault loaded, and run it. The report lands under `%TEMP%\skillhub-cli-test`
+and the exit code is the number of failed checks.
+
+The client resolves a vault from its working directory, otherwise from whichever vault was active
+last, so the harness changes into the vault and passes an explicit `vault=` selector that
+`vaultsel.cjs` resolves from Obsidian's own vault registry. Set `VAULTSEL` at the top of `test.cmd`
+to override it.
+
+The harness can be exercised without a live Obsidian, by pointing `OBSIDIAN_CMD` at a stand in client.
+`tools/cli-harness` holds two: one that answers each action and performs the side effects the
+filesystem assertions need, and one that reports commands as not found so the early exit path gets
+covered. Each has a `run` script that sets the environment and calls `test.cmd`.
+
 ## Roadmap
 
 Planned future directions:
