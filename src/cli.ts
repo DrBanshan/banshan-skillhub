@@ -1,5 +1,7 @@
 import type { CliData, CliFlags, CliHandler } from "obsidian";
 
+export type { CliData, CliFlags, CliHandler } from "obsidian";
+
 /**
  * Headless command layer for the Obsidian command line interface.
  * This module owns argument parsing, gate checks, outcome rendering and registration only.
@@ -82,9 +84,14 @@ function normalizeFormat(raw: Readonly<Record<string, string | boolean>>): CliFo
   return "text";
 }
 
+function isPositionalKey(key: string): boolean {
+  return /^[0-9]+$/.test(key);
+}
+
 function copyParams(params: CliData | Record<string, string | true | undefined>): Record<string, string | boolean> {
   const copied: Record<string, string | boolean> = {};
   for (const key of Object.keys(params)) {
+    if (isPositionalKey(key)) continue;
     const value = params[key];
     if (typeof value === "string") copied[key] = value;
     else if (value === true) copied[key] = true;
