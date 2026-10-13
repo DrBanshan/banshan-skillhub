@@ -290,6 +290,77 @@ export function commandName(action: string): string {
   return action.length === 0 ? CLI_COMMAND_PREFIX : `${CLI_COMMAND_PREFIX}:${action}`;
 }
 
+export interface UninstallCandidate {
+  key: string;
+  label: string;
+  destination: string;
+  method: string;
+  proven: boolean;
+}
+
+export interface UninstallRemoval {
+  key: string;
+  label: string;
+  destination: string;
+  decision: "removable" | "missing" | "blocked" | "failed";
+  reason: string;
+  mechanism: string;
+}
+
+export interface UninstallPlan {
+  rows: UninstallRemoval[];
+  removable: number;
+  removed: number;
+  missing: number;
+  blocked: number;
+  failed: number;
+}
+
+// Walks the uninstall candidates through the same decision the command line uses and only ever hands a
+// candidate to removeEntry once it has been judged removable. With apply set to false it computes the plan
+// alone, which is what dryrun reports and what the tests pin down.
+export async function applyUninstallPlan(
+  candidates: readonly UninstallCandidate[],
+  inspectState: (destination: string) => Promise<string>,
+  removeEntry: (candidate: UninstallCandidate) => Promise<void>,
+  apply: boolean = true
+): Promise<UninstallPlan> {
+  const rows: UninstallRemoval[] = [];
+  const plan: UninstallPlan = { rows, removable: 0, removed: 0, missing: 0, blocked: 0, failed: 0 };
+  for (const candidate of candidates) {
+    const state = await inspectState(candidate.destination);
+    const verdict = uninstallDecision({ state, method: candidate.method, proven: candidate.proven });
+    const row: UninstallRemoval = {
+      key: candidate.key,
+      label: candidate.label,
+      destination: candidate.destination,
+      decision: verdict.decision,
+      reason: verdict.reason,
+      mechanism: candidate.method
+    };
+    rows.push(row);
+    if (verdict.decision === "missing") {
+      plan.missing += 1;
+      continue;
+    }
+    if (verdict.decision === "blocked") {
+      plan.blocked += 1;
+      continue;
+    }
+    plan.removable += 1;
+    if (!apply) continue;
+    try {
+      await removeEntry(candidate);
+      plan.removed += 1;
+    } catch (error) {
+      row.decision = "failed";
+      row.reason = error instanceof Error ? error.message : String(error);
+      plan.failed += 1;
+    }
+  }
+  return plan;
+}
+
 export function usageText(commands: readonly CliCommandDefinition[]): string {
   const lines: string[] = [`Usage: obsidian [vault=<name|id>] ${CLI_COMMAND_PREFIX}[:<action>] [key=value ...] [flag]`, "", "Actions:"];
   const usable = commands.filter((command) => command.action.length > 0);

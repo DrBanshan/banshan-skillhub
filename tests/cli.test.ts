@@ -414,6 +414,7 @@ describe("cli module purity", () => {
       "CLI_ERROR_PREFIX",
       "CliError",
       "SKILL_ROW_COLUMNS",
+      "applyUninstallPlan",
       "commandName",
       "createCliHandler",
       "installTargetViolation",

@@ -2,7 +2,7 @@ import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian
 import { lstat, mkdtemp, rm, unlink } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
-import { CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
+import { applyUninstallPlan, CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type UninstallCandidate, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
@@ -791,55 +791,43 @@ export default class SkillHubPlugin extends Plugin {
         : `No selected skill is recorded as installed at ${target}. Recorded installs: ${installed.slice(0, 8).map((entry) => entry.record.nickname).join(", ")}${installed.length > 8 ? ", ..." : ""}.`);
     }
 
-    const rows: CliRow[] = [];
-    const removable: Array<{ record: SkillRecord; destination: string; mechanism: string }> = [];
-    let missing = 0;
-    let blocked = 0;
-    for (const entry of selection) {
-      const destination = this.cliInstallDestination(target, entry.record, "uninstall");
-      const state = await inspectDestination(destination);
-      const verdict = uninstallDecision({ state, method: entry.method, proven: true });
-      rows.push({ name: entry.record.nickname, decision: verdict.decision, destination, mechanism: entry.method, reason: verdict.reason });
-      if (verdict.decision === "removable") removable.push({ record: entry.record, destination, mechanism: entry.method });
-      else if (verdict.decision === "missing") missing += 1;
-      else blocked += 1;
-    }
+    const candidates: UninstallCandidate[] = selection.map((entry) => ({
+      key: entry.record.id,
+      label: entry.record.nickname,
+      destination: this.cliInstallDestination(target, entry.record, "uninstall"),
+      method: entry.method,
+      proven: true
+    }));
+    const plan = await applyUninstallPlan(
+      candidates,
+      async (destination) => await inspectDestination(destination),
+      async (candidate) => {
+        if (candidate.method === "copy") await rm(candidate.destination, { recursive: true, force: true });
+        else await unlink(candidate.destination);
+      },
+      !args.dryrun
+    );
+    const rows: CliRow[] = plan.rows.map((row) => ({ name: row.label, decision: row.decision, destination: row.destination, mechanism: row.mechanism, reason: row.reason }));
 
     if (args.dryrun) {
       return {
         action: "uninstall",
-        ok: blocked === 0,
-        message: `dryrun for ${target}: ${removable.length} to remove, ${missing} already absent, ${blocked} left alone`,
+        ok: plan.blocked === 0,
+        message: `dryrun for ${target}: ${plan.removable} to remove, ${plan.missing} already absent, ${plan.blocked} left alone`,
         columns: CLI_INSTALL_COLUMNS,
         rows,
-        data: { target, dryrun: true, counts: { removable: removable.length, missing, blocked } }
+        data: { target, dryrun: true, counts: { removable: plan.removable, missing: plan.missing, blocked: plan.blocked } }
       };
     }
 
-    let removed = 0;
-    let failed = 0;
-    for (const entry of removable) {
-      try {
-        if (entry.mechanism === "copy") await rm(entry.destination, { recursive: true, force: true });
-        else await unlink(entry.destination);
-        removed += 1;
-      } catch (error) {
-        failed += 1;
-        const row = rows.find((candidate) => candidate.destination === entry.destination);
-        if (row) {
-          row.decision = "failed";
-          row.reason = error instanceof Error ? error.message : String(error);
-        }
-      }
-    }
     this.refreshSkillHub();
     return {
       action: "uninstall",
-      ok: failed === 0,
-      message: `${target}: removed ${removed}, ${missing} already absent, ${blocked} left alone, ${failed} failed`,
+      ok: plan.failed === 0 && plan.blocked === 0,
+      message: `${target}: removed ${plan.removed}, ${plan.missing} already absent, ${plan.blocked} left alone, ${plan.failed} failed`,
       columns: CLI_INSTALL_COLUMNS,
       rows,
-      data: { target, counts: { removed, missing, blocked, failed } }
+      data: { target, counts: { removed: plan.removed, missing: plan.missing, blocked: plan.blocked, failed: plan.failed } }
     };
   }
 
