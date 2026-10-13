@@ -1,4 +1,5 @@
 import type { CliData, CliFlags, CliHandler } from "obsidian";
+import { isAbsolute, parse, relative, resolve } from "path";
 import type { SkillRecord } from "./types";
 
 export type { CliData, CliFlags, CliHandler } from "obsidian";
@@ -198,6 +199,41 @@ export function skillRecordRows(records: readonly SkillRecord[]): CliRow[] {
     installs: record.installCount,
     updatedAt: record.updatedAt
   }));
+}
+
+function trimTrailingSeparators(value: string): string {
+  return value.replace(/[\\/]+$/, "");
+}
+
+/**
+ * Explains why a path is unsafe to install into, or returns nothing when the non filesystem checks pass.
+ * Roots and the home directory would bury a whole .agents tree, and installing inside the vault would hand
+ * Obsidian link or dot paths it does not index, leaving registry entries the user interface cannot see.
+ */
+export function installTargetViolation(target: string, vaultPath: string, homePath: string): string | undefined {
+  const resolved = resolve(target);
+  const normalised = trimTrailingSeparators(resolved);
+  const root = trimTrailingSeparators(parse(resolved).root);
+  if (normalised.length === 0 || normalised === root) {
+    return `Refusing ${target} as an install target because it is a filesystem root.`;
+  }
+  const home = homePath.trim().length > 0 ? trimTrailingSeparators(resolve(homePath)) : "";
+  if (home.length > 0 && normalised.toLowerCase() === home.toLowerCase()) {
+    return `Refusing ${target} as an install target because it is the home directory. Point at the directory holding your agents instead.`;
+  }
+  const relation = relative(resolve(vaultPath), resolved);
+  if (relation.length === 0 || (!relation.startsWith("..") && !isAbsolute(relation))) {
+    return `Install target ${target} is inside the vault. Install outside the vault so Obsidian does not index the installed links.`;
+  }
+  return undefined;
+}
+
+/** Splits a skill selector into distinct names, or reports that the whole registry was asked for. */
+export function splitSkillSelector(selector: string): string[] | "all" {
+  const trimmed = selector.trim();
+  if (trimmed.length === 0 || trimmed === "*" || trimmed.toLowerCase() === "all") return "all";
+  const names = trimmed.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  return names.length > 0 ? names : "all";
 }
 
 export function renderOutcome(outcome: CliOutcome, format: CliFormat): string {

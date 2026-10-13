@@ -13,6 +13,8 @@ import {
   rankSkillMatches,
   skillMatches,
   skillRecordRows,
+  installTargetViolation,
+  splitSkillSelector,
   SKILL_ROW_COLUMNS
 } from "../src/cli";
 import type { SkillRecord } from "../src/types";
@@ -348,6 +350,39 @@ describe("cli skill helpers", () => {
   });
 });
 
+describe("cli install guards", () => {
+  const vault = "/home/agent/notes";
+  const home = "/home/agent";
+
+  it("rejects filesystem roots and the home directory", () => {
+    expect(installTargetViolation("/", vault, home)).toContain("filesystem root");
+    expect(installTargetViolation("/home/agent", vault, home)).toContain("home directory");
+    expect(installTargetViolation("/home/agent/", vault, home)).toContain("home directory");
+    expect(installTargetViolation("/home/AGENT", vault, home)).toContain("home directory");
+  });
+
+  it("rejects a target at or below the vault", () => {
+    expect(installTargetViolation(vault, vault, home)).toContain("inside the vault");
+    expect(installTargetViolation("/home/agent/notes/Skill/writer", vault, home)).toContain("inside the vault");
+    expect(installTargetViolation("/home/agent/notes/../notes", vault, home)).toContain("inside the vault");
+  });
+
+  it("accepts an outside directory that only has to exist for the caller to check", () => {
+    expect(installTargetViolation("/home/agent/.agents", vault, home)).toBeUndefined();
+    expect(installTargetViolation("/../shared/agents", vault, home)).toBeUndefined();
+    expect(installTargetViolation("/home/agents-daemon", vault, home)).toBeUndefined();
+  });
+
+  it("splits skill selectors and understands the wildcard spellings", () => {
+    expect(splitSkillSelector("")).toBe("all");
+    expect(splitSkillSelector("*")).toBe("all");
+    expect(splitSkillSelector(" ALL ")).toBe("all");
+    expect(splitSkillSelector("writer, reviewer")).toEqual(["writer", "reviewer"]);
+    expect(splitSkillSelector(" writer , , writer ")).toEqual(["writer", "writer"]);
+    expect(splitSkillSelector("writer")).toEqual(["writer"]);
+  });
+});
+
 describe("cli module purity", () => {
   it("is usable without touching the Obsidian runtime", async () => {
     const cliModule = await vi.importActual<typeof import("../src/cli")>("../src/cli");
@@ -359,12 +394,14 @@ describe("cli module purity", () => {
       "SKILL_ROW_COLUMNS",
       "commandName",
       "createCliHandler",
+      "installTargetViolation",
       "parseCliArgs",
       "rankSkillMatches",
       "registerSkillHubCli",
       "renderOutcome",
       "skillMatches",
       "skillRecordRows",
+      "splitSkillSelector",
       "usageText"
     ]);
   });

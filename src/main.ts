@@ -1,9 +1,10 @@
 import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
 import { lstat, mkdtemp, rm } from "fs/promises";
-import { isAbsolute, join, relative } from "path";
-import { CliError, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
+import { homedir } from "os";
+import { isAbsolute, join, relative, resolve } from "path";
+import { CliError, installTargetViolation, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
-import { SkillExportService, type InstallOptions, type InstallSummary } from "./exportService";
+import { inspectDestination, SkillExportService, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
 import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
@@ -13,7 +14,7 @@ import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./regi
 import { SkillHubSettingTab } from "./settings";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import { discoverSkills, formatMissingSkillsFolderMessage, type DiscoveredSkill } from "./skillDiscovery";
-import type { SkillHubData, SkillRecord, SkillSource } from "./types";
+import type { InstallMethod, SkillHubData, SkillRecord, SkillSource } from "./types";
 import { InstallResultModal, ManualNpxFallbackModal, SkillSelectionModal } from "./ui/modals";
 import { SkillHubView, SKILL_HUB_ICON_ID, VIEW_TYPE_SKILL_HUB } from "./ui/SkillHubView";
 import { removeVaultRelativePath, resolveVaultRelativePath } from "./vaultPaths";
@@ -30,6 +31,8 @@ const SKILL_HUB_ICON_SVG = `
   <path d="M12 14.4v3.2" />
   <path d="m10.6 18.4 1.4-1.4 1.4 1.4-1.4 1.4-1.4-1.4Z" />
 </svg>`;
+
+const CLI_INSTALL_COLUMNS = ["name", "decision", "destination", "mechanism", "reason"];
 
 export default class SkillHubPlugin extends Plugin {
   data: SkillHubData = createEmptySkillHubData();
@@ -353,6 +356,18 @@ export default class SkillHubPlugin extends Plugin {
         action: "scan",
         description: "Discover the skills in a directory without writing anything",
         flags: { path: { value: "<path>", description: "Directory to scan", required: true } }
+      },
+      {
+        action: "install",
+        description: "Install skills into an agent skill directory",
+        mutating: true,
+        flags: {
+          skill: { value: "<name|id|all>", description: "Comma separated skill names, or all" },
+          collection: { value: "<name|id>", description: "Restrict the selection to one collection" },
+          target: { value: "<path>", description: "Directory receiving .agents/skills; defaults to the remembered target" },
+          method: { value: "<copy|symlink|junction>", description: "Link or copy mechanism; defaults to the install method setting" },
+          conflict: { value: "<skip|replace-symlinks>", description: "What to do with an existing link; defaults to the conflict setting" }
+        }
       }
     ];
   }
@@ -364,6 +379,7 @@ export default class SkillHubPlugin extends Plugin {
       case "show": return this.cliShow(args);
       case "search": return this.cliSearch(args);
       case "scan": return this.cliScan(args);
+      case "install": return this.cliInstall(args);
       default: return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
     }
   }
@@ -477,6 +493,160 @@ export default class SkillHubPlugin extends Plugin {
       columns: SKILL_ROW_COLUMNS,
       rows: skillRecordRows(ranked)
     };
+  }
+
+  private async cliInstall(args: CliArgs): Promise<CliOutcome> {
+    const records = this.cliSelectRecords(args);
+    const target = (args.value("target") ?? this.knownInstallTargets()[0] ?? "").trim();
+    if (target.length === 0) {
+      throw new CliError("Missing required parameter target=<path>. Pick an install target once in Skill Hub so it is remembered, or pass target=<path>.");
+    }
+    const vaultPath = this.getVaultBasePath();
+    const method = this.cliInstallMethod(args);
+    const conflictBehavior = this.cliConflictBehavior(args);
+    await this.assertCliInstallTarget(target, vaultPath);
+
+    const plan = await this.cliPlanInstall(records, target, conflictBehavior, vaultPath);
+    if (args.dryrun) {
+      return {
+        action: "install",
+        ok: true,
+        message: `dryrun for ${target} using ${method}: ${plan.installed} to add, ${plan.replaced} to replace, ${plan.skipped} already present, ${plan.failed} would fail`,
+        columns: CLI_INSTALL_COLUMNS,
+        rows: plan.rows,
+        data: { target, method, conflictBehavior, dryrun: true, counts: { installed: plan.installed, replaced: plan.replaced, skipped: plan.skipped, failed: plan.failed } }
+      };
+    }
+    if (plan.replaced > 0 && !args.confirm) {
+      const victims = plan.rows.filter((row) => row.decision === "replaced").map((row) => String(row.name ?? "")).join(", ");
+      throw new CliError(`Installing into ${target} would replace ${plan.replaced} existing ${plan.replaced === 1 ? "link" : "links"} (${victims}). Re-run with confirm=1 to apply, or dryrun=1 to review.`);
+    }
+
+    const summary = await this.installSkillsTo(records, target, { vaultPath, method, conflictBehavior });
+    this.refreshSkillHub();
+    return {
+      action: "install",
+      ok: summary.failed.length === 0,
+      message: `${target}: installed ${summary.installed.length}, replaced ${summary.replaced.length}, skipped ${summary.skipped.length}, failed ${summary.failed.length}`,
+      columns: CLI_INSTALL_COLUMNS,
+      rows: this.cliInstallRows(records, target, summary),
+      data: { target, method, conflictBehavior, summary }
+    };
+  }
+
+  private cliSelectRecords(args: CliArgs): SkillRecord[] {
+    const all = this.cliRecords();
+    const selector = (args.value("skill") ?? "").trim();
+    const collection = (args.value("collection") ?? "").trim();
+    if (selector.length === 0 && collection.length === 0) {
+      throw new CliError("Missing required parameter skill=<name|id|all>. Pass skill=all together with collection=<name> to install a whole collection.");
+    }
+
+    let picked: SkillRecord[];
+    const requested = splitSkillSelector(selector);
+    if (requested === "all") {
+      picked = all.slice();
+    } else {
+      picked = [];
+      for (const name of requested) {
+        const found = this.cliFindRecord(name);
+        if (!found) {
+          const known = all.slice(0, 8).map((entry) => entry.nickname).join(", ");
+          throw new CliError(`No skill named ${name}. Known skills: ${known.length > 0 ? `${known}${all.length > 8 ? ", ..." : ""}` : "(none)"}.`);
+        }
+        if (!picked.includes(found)) picked.push(found);
+      }
+    }
+
+    const selected = collection.length === 0 ? picked : this.cliCollectionMembers(picked, collection);
+    if (selected.length === 0) throw new CliError("That selection resolved to no skills.");
+    return selected;
+  }
+
+  private cliCollectionMembers(records: SkillRecord[], collection: string): SkillRecord[] {
+    const wanted = collection.trim().toLowerCase();
+    const match = Object.values(this.registry.data.collections).find((entry) => entry.id.toLowerCase() === wanted || entry.name.toLowerCase() === wanted);
+    if (!match) throw new CliError(`No collection named ${collection}.`);
+    const memberIds = new Set(match.skillIds);
+    return records.filter((record) => memberIds.has(record.id));
+  }
+
+  private cliInstallMethod(args: CliArgs): InstallMethod {
+    const requested = (args.value("method") ?? "").trim().toLowerCase();
+    if (requested.length === 0) return this.data.settings.installMethod;
+    if (requested === "copy" || requested === "symlink" || requested === "junction") return requested;
+    throw new CliError(`Unknown method ${requested}. Use copy, symlink or junction.`);
+  }
+
+  private cliConflictBehavior(args: CliArgs): SymlinkConflictBehavior {
+    const requested = (args.value("conflict") ?? "").trim().toLowerCase();
+    if (requested.length === 0) return this.data.settings.defaultSymlinkConflictBehavior === "overwrite" ? "replace-symlinks" : "skip";
+    if (requested === "skip" || requested === "replace-symlinks") return requested;
+    throw new CliError(`Unknown conflict ${requested}. Use skip or replace-symlinks.`);
+  }
+
+  private async assertCliInstallTarget(target: string, vaultPath: string): Promise<void> {
+    const violation = installTargetViolation(target, vaultPath, homedir());
+    if (violation) throw new CliError(violation);
+    const resolved = resolve(target);
+    try {
+      const stats = await lstat(resolved);
+      if (!stats.isDirectory()) throw new CliError(`Install target ${target} is a file, not a directory.`);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      const code = (error as { code?: string })?.code;
+      throw new CliError(code === "ENOENT"
+        ? `Install target ${target} does not exist yet. Create it first, or install from the Skill Hub user interface.`
+        : `Install target ${target} cannot be inspected: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async cliPlanInstall(
+    records: SkillRecord[],
+    target: string,
+    conflictBehavior: SymlinkConflictBehavior,
+    vaultPath: string
+  ): Promise<{ rows: CliRow[]; installed: number; replaced: number; skipped: number; failed: number }> {
+    const rows: CliRow[] = [];
+    const counts = { installed: 0, replaced: 0, skipped: 0, failed: 0 };
+    for (const record of records) {
+      const destination = join(target, ".agents", "skills", record.folderName);
+      try {
+        await resolveVaultRelativePath(vaultPath, record.vaultPath, { verifyFilesystem: true });
+      } catch (error) {
+        counts.failed += 1;
+        rows.push({ name: record.nickname, decision: "failed", destination, mechanism: "", reason: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
+      const state = await inspectDestination(destination);
+      if (state === "missing") {
+        counts.installed += 1;
+        rows.push({ name: record.nickname, decision: "installed", destination, mechanism: "", reason: "" });
+      } else if (state === "symlink" && conflictBehavior === "replace-symlinks") {
+        counts.replaced += 1;
+        rows.push({ name: record.nickname, decision: "replaced", destination, mechanism: "", reason: "existing link would be replaced" });
+      } else {
+        counts.skipped += 1;
+        rows.push({ name: record.nickname, decision: "skipped", destination, mechanism: "", reason: `destination already ${state}` });
+      }
+    }
+    return { rows, ...counts };
+  }
+
+  private cliInstallRows(records: SkillRecord[], target: string, summary: InstallSummary): CliRow[] {
+    return records.map((record) => {
+      const decision = summary.installed.includes(record.id) ? "installed"
+        : summary.replaced.includes(record.id) ? "replaced"
+          : summary.skipped.includes(record.id) ? "skipped" : "failed";
+      const failure = summary.failed.find((entry) => entry.skillId === record.id);
+      return {
+        name: record.nickname,
+        decision,
+        destination: join(target, ".agents", "skills", record.folderName),
+        mechanism: summary.mechanisms?.[record.id] ?? "",
+        reason: failure?.reason ?? ""
+      };
+    });
   }
 
   private async cliScan(args: CliArgs): Promise<CliOutcome> {
