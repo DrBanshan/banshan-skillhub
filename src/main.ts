@@ -6,7 +6,7 @@ import { SkillExportService, type InstallOptions, type InstallSummary } from "./
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
 import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
-import { SkillImportService } from "./importService";
+import { SkillImportService, type ImportResult } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
 import { SkillHubSettingTab } from "./settings";
@@ -212,6 +212,42 @@ export default class SkillHubPlugin extends Plugin {
     this.refreshSkillHub();
   }
 
+  async importDirectoryHeadless(
+    path: string,
+    source: SkillSource,
+    importMethod: SkillRecord["importMethod"],
+    selection: "*" | string[] = "*",
+    stagingPath?: string
+  ): Promise<ImportResult> {
+    const discovered = await discoverSkills(path);
+    if (discovered.missingSkillsFolder) throw new Error(formatMissingSkillsFolderMessage());
+    const chosen = selection === "*"
+      ? discovered.skills
+      : discovered.skills.filter((skill) => selection.includes(skill.folderName));
+    return this.importDiscoveredHeadless(chosen, source, importMethod, stagingPath);
+  }
+
+  async importDiscoveredHeadless(
+    selected: DiscoveredSkill[],
+    source: SkillSource,
+    importMethod: SkillRecord["importMethod"],
+    stagingPath?: string
+  ): Promise<ImportResult> {
+    if (selected.length === 0) {
+      await this.cleanupStagingPath(stagingPath);
+      return { imported: [] };
+    }
+    const result = await new SkillImportService(this.registry, this.data.settings).importDiscoveredSkills(selected, {
+      vaultPath: this.getVaultBasePath(),
+      source,
+      importMethod,
+      stagingPath,
+      persist: () => this.saveSkillHubData()
+    });
+    this.refreshSkillHub();
+    return result;
+  }
+
   private async openImportSelection(
     discovered: DiscoveredSkill[],
     source: SkillSource,
@@ -229,14 +265,7 @@ export default class SkillHubPlugin extends Plugin {
           await this.cleanupStagingPath(stagingPath);
           return;
         }
-        const result = await new SkillImportService(this.registry, this.data.settings).importDiscoveredSkills(selected, {
-          vaultPath: this.getVaultBasePath(),
-          source,
-          importMethod,
-          stagingPath,
-          persist: () => this.saveSkillHubData()
-        });
-        this.refreshSkillHub();
+        const result = await this.importDiscoveredHeadless(selected, source, importMethod, stagingPath);
         new Notice(`Imported ${result.imported.length} skill${result.imported.length === 1 ? "" : "s"}.`);
       } catch (error) {
         this.showError(await this.cleanupStagingAfterError(error, stagingPath));
