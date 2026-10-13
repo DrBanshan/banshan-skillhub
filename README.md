@@ -74,7 +74,55 @@ The install method is configurable:
 - **Copy:** Copies skill folders into `.agents/skills`.
 - **Symlink:** Links installed skills back to the vault copy, so updates in the vault are reflected in the target workspace.
 
-Symlink creation depends on OS permissions. On Windows, Developer Mode or elevated permissions may be required.
+Symlink creation depends on OS permissions. On Windows, Developer Mode or elevated permissions may be required. When a machine refuses the symlink, Skill Hub falls back to a Windows junction, which needs no elevated privileges and points at the vault copy the same way.
+
+### Command Line Interface
+
+Turn on **Enable command line interface** in the Skill Hub settings (it ships switched off) and Obsidian registers the plugin with its command line interface. Every action then runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
+
+```bash
+obsidian banshan-skillhub
+obsidian banshan-skillhub:info vault=MyVault
+obsidian banshan-skillhub:list tag=writer sort=updated limit=20
+obsidian banshan-skillhub:show skill=find-skills format=json
+obsidian banshan-skillhub:search query=frontmatter
+obsidian banshan-skillhub:scan path=C:\work\skills
+obsidian banshan-skillhub:install skill=find-skills target=C:\work\agent method=symlink
+obsidian banshan-skillhub:install collection=research target=C:\work\agent
+obsidian banshan-skillhub:link skill=find-skills target=C:\work\agent
+obsidian banshan-skillhub:uninstall target=C:\work\agent confirm=1
+obsidian banshan-skillhub:import path=C:\work\skills
+obsidian banshan-skillhub:order list=find-skills,writer confirm=1
+obsidian banshan-skillhub:settings key=defaultSort value=updatedAt confirm=1
+obsidian banshan-skillhub:refresh
+```
+
+The bare command prints the full action list with every flag.
+
+| Action | Purpose |
+| --- | --- |
+| `info` | Reports the plugin version, vault, counts, and settings state, including whether the interface is switched on |
+| `list` | Lists skills with `tag=`, `collection=`, `sort=`, and `limit=` |
+| `show` | Prints one skill: files, metadata, tags, collections, source, install count |
+| `search` | Ranks matches across name, description, tags, and nickname |
+| `scan` | Discovers skills in a directory, with the `skills/` fallback, without importing anything |
+| `install` | Installs `skill=`, `collection=`, or `skill=all` into `<target>\.agents\skills` using `method=symlink` or `method=copy` |
+| `link` | Links one skill, with a junction fallback, and `force=1` replaces an existing link |
+| `uninstall` | Removes installs the activity log proves Skill Hub made: links are unlinked, copies are deleted |
+| `import` | Discovers and imports skills from a local directory |
+| `order` | Reads the curated ordering, or sets it with `list=a,b,c` |
+| `settings` | Reads any setting, and writes ordinary ones with the same validation the settings tab applies |
+| `refresh` | Redraws every open Skill Hub view |
+
+A few rules hold across the whole interface:
+
+- Arguments are always `key=value` pairs, so a value that begins with a dash is never mistaken for an option.
+- `format=json` prints one machine readable object instead of the aligned tables, and `dryrun=1` reports what an action would do while leaving the filesystem alone.
+- Actions that delete or rewrite shared state (`uninstall`, `order`, `settings`) refuse to run until you add `confirm=1`, both here and in the user interface.
+- `uninstall` only touches what an install recorded: a link is removed without disturbing the vault copy it pointed at, and a copied folder is deleted only when the record shows it arrived as a copy. Anything else is reported and left alone.
+- A target that is a drive root, your home directory, or anywhere inside the vault is refused, so an install can never nest `.agents` inside the vault.
+- `Enable command line interface` and `Enable npx execution` cannot be changed from the command line; they are switched on in settings so a person always grants those permissions.
+- A refused command prints a line starting with `ERROR:`; under `format=json` the object carries `ok: false` and a `message`.
 
 ## How To Use
 
@@ -86,6 +134,7 @@ Symlink creation depends on OS permissions. On Windows, Developer Mode or elevat
 6. Select skills or collections, then click **Install**.
 7. Choose the target project folder in the native folder picker.
 8. Skill Hub installs the chosen skills into `.agents/skills`.
+9. With the command line interface switched on, drive the same flows from a shell: `obsidian banshan-skillhub:list`, `install`, `link`, `uninstall`, `import`.
 
 ## Settings
 
@@ -95,6 +144,7 @@ Skill Hub settings include:
 - **Install method:** Copy or symlink.
 - **Default sort:** Nickname, original name, recently updated, or custom drag order.
 - **Enable npx execution:** Controls whether Skill Hub can run `npx skills add ...` directly.
+- **Enable command line interface:** Publishes the `banshan-skillhub` command so scripts and agent CLIs can import, install, and inspect without opening a window. Off by default, and never switched on from the command line itself.
 - **Symlink conflict behavior:** Skip or overwrite existing symlinks.
 
 ## Notes And Limitations
@@ -104,6 +154,8 @@ Skill Hub settings include:
 - Local scan expects either `skills/` or `.agents/skills/` under the chosen directory.
 - Empty folders may not be selectable through the native folder picker because the browser-style directory input needs at least one file to expose a path.
 - The target workspace must allow Skill Hub to create `.agents/skills` and copy or link skill files.
+- The command line interface needs the Obsidian command line interface, which arrived with version 1.12 and is a desktop feature.
+- Deleting an installed skill clears its links in agent workspaces, because a link points back into the vault.
 
 ## Development
 
