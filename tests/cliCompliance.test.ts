@@ -10,7 +10,10 @@ function moduleLines(source: string, moduleName: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.startsWith("import") || line.startsWith("export"))
-    .filter((line) => line.includes(`"${moduleName}"`));
+    // weighing a module statement rather than any line that happens to hold the name in a string, so
+    // a constant such as the client program name is not mistaken for reaching into the runtime
+    .filter((line) => line.includes(" from "))
+    .filter((line) => line.replace(/[;\s]+$/, "").endsWith(`"${moduleName}"`));
 }
 
 describe("command line layer stays headless", () => {

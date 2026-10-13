@@ -12,6 +12,7 @@ export type { CliData, CliFlags, CliHandler } from "obsidian";
  */
 
 export const CLI_COMMAND_PREFIX = "banshan-skillhub";
+export const CLI_PROGRAM = "obsidian";
 export const CLI_ERROR_PREFIX = "ERROR: ";
 export const CLI_DISABLED_MESSAGE =
   "Skill Hub command line support is off. Enable it in Settings -> Community plugins -> Skill Hub -> Enable Skill Hub command line actions.";
@@ -420,6 +421,31 @@ export async function applyUninstallPlan(
     }
   }
   return plan;
+}
+
+/**
+ * Builds the vault= parameter for a name that a person will read and paste. The client takes either a
+ * vault name or its id, and a name carrying a space has to arrive as one parameter, so the quoting is
+ * done here rather than left to whoever copies the line out of the settings.
+ */
+export function cliVaultSelector(vaultName: string): string {
+  const name = vaultName.trim();
+  if (name.length === 0) return "vault=<name or id>";
+  return name.includes(" ") ? `vault="${name}"` : `vault=${name}`;
+}
+
+/**
+ * The commands worth offering underneath the switch. The first asks the plugin what it can see, which
+ * is the line to run when nothing appears to be working, and the second proves that rows and the json
+ * format travel intact. The vault is named out front because the client reads a vault before it reads
+ * the command.
+ */
+export function cliVerificationCommands(vaultName: string): string[] {
+  const selector = cliVaultSelector(vaultName);
+  return [
+    `${CLI_PROGRAM} ${selector} ${CLI_COMMAND_PREFIX}:info`,
+    `${CLI_PROGRAM} ${selector} ${CLI_COMMAND_PREFIX}:list format=json`
+  ];
 }
 
 export function usageText(commands: readonly CliCommandDefinition[]): string {

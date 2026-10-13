@@ -1,5 +1,6 @@
-import { PluginSettingTab, type SettingDefinitionItem } from "obsidian";
+import { PluginSettingTab, type Setting, type SettingDefinitionItem } from "obsidian";
 import type SkillHubPlugin from "./main";
+import { cliVerificationCommands } from "./cli";
 import { DEFAULT_SETTINGS } from "./settingsDefaults";
 import type { SkillHubSettings } from "./types";
 import { resolveVaultRelativePath } from "./vaultPaths";
@@ -76,6 +77,22 @@ export class SkillHubSettingTab extends PluginSettingTab {
           }
         },
         {
+          name: "Check the actions from a terminal",
+          desc: "Name the vault before the command, because the client reads a vault first and then the command. "
+            + "Run the lines below from anywhere, with Obsidian open and this vault loaded, and the plugin answers in the terminal. "
+            + "To exercise every action at once, run test.cmd from a checkout of the plugin repository: it detects the vault, "
+            + "or takes one as test.cmd vault=<folder>, and test.cmd --list shows the vaults Obsidian knows about. "
+            + "The report is written under the temporary folder and the exit code is the number of checks that failed. "
+            + "The fields hold the lines ready to copy, for the vault you have open now.",
+          render: (setting: Setting) => {
+            for (const command of cliVerificationCommands(this.vaultNameForCli())) {
+              setting.addText((field) => {
+                field.setValue(command);
+              });
+            }
+          }
+        },
+        {
           name: "Symlink conflict behavior",
           desc: "Choose what happens when a destination is already a symlink.",
           control: {
@@ -91,6 +108,18 @@ export class SkillHubSettingTab extends PluginSettingTab {
 
   getControlValue(key: SkillHubSettingKey): unknown {
     return this.skillHubPlugin.data.settings[key];
+  }
+
+  /**
+   * The vault name the command line takes, which for a vault that cannot answer is left blank so the
+   * shown line carries a placeholder rather than a wrong name.
+   */
+  private vaultNameForCli(): string {
+    try {
+      return this.app.vault.getName() ?? "";
+    } catch (error) {
+      return "";
+    }
   }
 
   async setControlValue(key: SkillHubSettingKey, value: unknown): Promise<void> {

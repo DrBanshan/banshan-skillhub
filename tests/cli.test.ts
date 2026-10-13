@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CLI_COMMAND_PREFIX,
+  cliVerificationCommands,
+  cliVaultSelector,
   CLI_DISABLED_MESSAGE,
   CLI_ERROR_PREFIX,
   CliError,
@@ -460,9 +462,12 @@ describe("cli module purity", () => {
       "CLI_COMMAND_PREFIX",
       "CLI_DISABLED_MESSAGE",
       "CLI_ERROR_PREFIX",
+      "CLI_PROGRAM",
       "CliError",
       "SKILL_ROW_COLUMNS",
       "applyUninstallPlan",
+      "cliVaultSelector",
+      "cliVerificationCommands",
       "commandName",
       "createCliHandler",
       "installTargetViolation",
@@ -478,5 +483,25 @@ describe("cli module purity", () => {
       "usageText",
       "writeConfirmationMessage"
     ]);
+  });
+});
+
+describe("the commands shown under the switch", () => {
+  it("names the vault ahead of the command", () => {
+    const commands = cliVerificationCommands("ob-plugin-dev");
+    expect(commands).toEqual([
+      "obsidian vault=ob-plugin-dev banshan-skillhub:info",
+      "obsidian vault=ob-plugin-dev banshan-skillhub:list format=json"
+    ]);
+  });
+
+  it("quotes a vault name carrying a space, so it stays one parameter", () => {
+    expect(cliVaultSelector("My Notes")).toBe("vault=\"My Notes\"");
+    expect(cliVaultSelector("  padded  ")).toBe("vault=padded");
+  });
+
+  it("falls back to a placeholder when there is no vault name to show", () => {
+    expect(cliVaultSelector("")).toBe("vault=<name or id>");
+    expect(cliVerificationCommands("   ")[0]).toContain("vault=<name or id>");
   });
 });

@@ -124,6 +124,7 @@ A few rules hold across the whole interface:
 - A target that is a drive root, your home directory, or anywhere inside the vault is refused, so an install can never nest `.agents` inside the vault.
 - `Enable Skill Hub command line actions` and `Enable npx execution` cannot be changed from the command line; they are switched on in settings so a person always grants those permissions.
 - A refused command prints a line starting with `ERROR:`; under `format=json` the object carries `ok: false` and a `message`.
+- The settings tab shows the two commands worth running first, filled in for the vault you have open, underneath the switch that enables them.
 
 ## How To Use
 
@@ -189,19 +190,38 @@ It also syncs the root `main.js` bundle for release tracking.
 ### Testing the command line actions
 
 `test.cmd` at the repo root drives every registered action through the `obsidian` client and judges
-each reply, the filesystem, or both, over seventy six checks. Edit the values in its `EDIT` block,
-keep Obsidian open with the vault loaded, and run it. The report lands under `%TEMP%\skillhub-cli-test`
-and the exit code is the number of failed checks.
+each reply, the filesystem, or both, over seventy six checks. Keep Obsidian open with the vault loaded
+and run it. The report lands under `%TEMP%\skillhub-cli-test` and the exit code is the number of
+checks that failed.
 
-The client resolves a vault from its working directory, otherwise from whichever vault was active
-last, so the harness changes into the vault and passes an explicit `vault=` selector that
-`vaultsel.cjs` resolves from Obsidian's own vault registry. Set `VAULTSEL` at the top of `test.cmd`
-to override it.
+```bat
+test.cmd                              detect the vault and run every check
+test.cmd vault=D:\MyVault              test against a particular vault, the folder holding .obsidian
+test.cmd --vault=D:\MyVault            the same thing
+test.cmd vault D:\MyVault              the same thing, for a folder whose name has a space
+test.cmd --list                       list the vaults Obsidian knows about and which are ready
+test.cmd --open                       open the report in notepad when the run ends
+test.cmd --help                       show this
+```
+
+Nothing is hard wired to one vault. With none named, the harness asks Obsidian's own registry for the
+vaults that have `banshan-skillhub` installed and takes the most recently opened of those; when
+several qualify, or when none has the plugin, it says so and names the alternatives. `vaultsel.cjs`
+performs that lookup and also prints the `vault=` selector the client needs, since the client reads a
+vault before it reads the command. Passing a vault on the command line, in the `VAULT` environment
+variable, or on the `VAULT` line in the file's `EDIT` block all work, in that order of precedence, and
+the header of every run prints which one was used.
+
+The same commands the harness starts with are shown under **Settings -> Community plugins -> Banshan
+Skill Hub**, underneath the command line switch, already filled in with the vault you have open and
+ready to copy out.
 
 The harness can be exercised without a live Obsidian, by pointing `OBSIDIAN_CMD` at a stand in client.
 `tools/cli-harness` holds two: one that answers each action and performs the side effects the
 filesystem assertions need, and one that reports commands as not found so the early exit path gets
-covered. Each has a `run` script that sets the environment and calls `test.cmd`.
+covered. Each has a `run` script that sets the environment and calls `test.cmd`, and both forward any
+arguments you add, so `tools\cli-harness\run-stub-test.cmd vault=D:\MyVault` runs the same suite against
+a named vault.
 
 ## Roadmap
 
