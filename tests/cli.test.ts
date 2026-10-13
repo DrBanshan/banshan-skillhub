@@ -225,6 +225,14 @@ describe("cli rendering", () => {
     expect(payload.rows).toHaveLength(2);
   });
 
+  it("indents json so a long payload cannot collapse into one line that the console clips away", () => {
+    const wide = { name: "writer", description: "x".repeat(400), source: "local" };
+    const rendered = renderOutcome({ action: "list", ok: true, rows: [wide, wide, wide] }, "json");
+    expect(rendered.includes("\n")).toBe(true);
+    expect(rendered.split("\n").length).toBeGreaterThan(3);
+    expect(JSON.parse(rendered).rows).toHaveLength(3);
+  });
+
   it("aligns text columns and keeps header order stable", () => {
     const text = renderOutcome({
       action: "list",

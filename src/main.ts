@@ -405,6 +405,10 @@ export default class SkillHubPlugin extends Plugin {
         description: "Reopen every open Skill Hub view"
       },
       {
+        action: "probe",
+        description: "Report the parameters the plugin actually received, for diagnosing how a command line reaches it"
+      },
+      {
         action: "order",
         description: "Read or set the curated skill ordering used by the custom sort",
         destructive: true,
@@ -436,6 +440,7 @@ export default class SkillHubPlugin extends Plugin {
       case "uninstall": return this.cliUninstall(args);
       case "import": return this.cliImport(args);
       case "refresh": return this.cliRefresh(args);
+      case "probe": return this.cliProbe(args);
       case "order": return this.cliOrder(args);
       case "settings": return this.cliSettings(args);
       default: return { action, ok: false, message: `No Skill Hub command line action is registered for ${action} yet.` };
@@ -493,6 +498,19 @@ export default class SkillHubPlugin extends Plugin {
       ok: true,
       message: "open Skill Hub views were redrawn from the registry",
       data: { skills: Object.keys(this.registry.data.skills).length }
+    };
+  }
+
+  private cliProbe(args: CliArgs): CliOutcome {
+    const keys = Object.keys(args.raw).sort();
+    const rendered = keys.map((key) => `${key}=${args.raw[key] === true ? "" : String(args.raw[key])}`);
+    return {
+      action: "probe",
+      ok: true,
+      message: `${keys.length} parameter${keys.length === 1 ? "" : "s"} reached the command layer: ${rendered.length > 0 ? rendered.join(" ") : "(none)"}`,
+      columns: ["parameter", "received"],
+      rows: keys.map((key) => ({ parameter: key, received: args.raw[key] === true ? "(flag without a value)" : String(args.raw[key]) })),
+      data: { received: args.raw }
     };
   }
 

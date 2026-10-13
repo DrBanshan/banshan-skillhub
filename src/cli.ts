@@ -254,13 +254,19 @@ export function uninstallDecision(entry: { state: string; method: string; proven
 
 export function renderOutcome(outcome: CliOutcome, format: CliFormat): string {
   if (format === "json") {
-    return JSON.stringify({
-      action: outcome.action,
-      ok: outcome.ok,
-      message: outcome.message ?? undefined,
-      data: outcome.data ?? undefined,
-      rows: outcome.rows ?? undefined
-    });
+    // Indented so the result stays readable when Obsidian prints it, and so a long payload does not
+    // collapse into one enormous line that the console can clip away entirely.
+    return JSON.stringify(
+      {
+        action: outcome.action,
+        ok: outcome.ok,
+        message: outcome.message ?? undefined,
+        data: outcome.data ?? undefined,
+        rows: outcome.rows ?? undefined
+      },
+      null,
+      2
+    );
   }
 
   const lines: string[] = [];
