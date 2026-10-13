@@ -1,4 +1,4 @@
-export type InstallMethod = "symlink" | "copy";
+export type InstallMethod = "symlink" | "junction" | "copy";
 
 export interface SkillHubSettings {
   skillFolder: string;

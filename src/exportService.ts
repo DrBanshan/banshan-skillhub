@@ -7,6 +7,13 @@ import { resolveVaultRelativePath } from "./vaultPaths";
 
 export type SymlinkConflictBehavior = "skip" | "replace-symlinks";
 export type DestinationState = "missing" | "symlink" | "real" | "other";
+export type InstallLinkMechanism = "symlink" | "junction";
+export type InstallMechanism = InstallLinkMechanism | "copy";
+
+export interface LinkOutcome {
+  result: InstallResult;
+  mechanism: InstallLinkMechanism;
+}
 
 export interface InstallOptions {
   vaultPath: string;
@@ -24,6 +31,8 @@ export interface InstallSummary {
   skipped: string[];
   replaced: string[];
   failed: InstallFailure[];
+  /** Which mechanism actually created each entry, so reports can be truthful about reparse types. */
+  mechanisms?: Record<string, InstallMechanism>;
 }
 
 type InstallResult = "installed" | "skipped" | "replaced";
@@ -46,21 +55,51 @@ export async function inspectDestination(destination: string): Promise<Destinati
   }
 }
 
+const JUNCTION_FALLBACK_CODES = ["EPERM", "EACCES", "EINVAL", "EOPNOTSUP", "ENOTSUPP", "ENOTSUP"];
+
+function isJunctionFallbackCandidate(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === "string" && JUNCTION_FALLBACK_CODES.includes(code);
+}
+
+async function createLink(source: string, destination: string, mechanism: InstallLinkMechanism): Promise<void> {
+  await symlink(source, destination, mechanism === "junction" ? "junction" : "dir");
+}
+
+/**
+ * Creates or replaces a directory link.
+ * A refused symlink is retried as a Windows junction so a normal shell does not need Developer Mode or an
+ * elevated process, which is what makes the command line install path usable out of the box.
+ */
+export async function installByLink(
+  source: string,
+  destination: string,
+  conflictBehavior: SymlinkConflictBehavior,
+  requested: InstallLinkMechanism = "symlink"
+): Promise<LinkOutcome> {
+  const state = await inspectDestination(destination);
+  const reportMechanism: InstallLinkMechanism = requested === "junction" ? "junction" : "symlink";
+  if (state === "symlink" && conflictBehavior !== "replace-symlinks") return { result: "skipped", mechanism: reportMechanism };
+  if (state !== "missing" && state !== "symlink") return { result: "skipped", mechanism: reportMechanism };
+
+  const replacing = state === "symlink";
+  if (replacing) await unlink(destination);
+  try {
+    await createLink(source, destination, requested);
+    return { result: replacing ? "replaced" : "installed", mechanism: requested };
+  } catch (error) {
+    if (requested !== "symlink" || !isJunctionFallbackCandidate(error)) throw error;
+    await createLink(source, destination, "junction");
+    return { result: replacing ? "replaced" : "installed", mechanism: "junction" };
+  }
+}
+
 export async function installBySymlink(
   source: string,
   destination: string,
   conflictBehavior: SymlinkConflictBehavior
 ): Promise<InstallResult> {
-  const state = await inspectDestination(destination);
-  if (state === "symlink" && conflictBehavior === "replace-symlinks") {
-    await unlink(destination);
-    await symlink(source, destination, "dir");
-    return "replaced";
-  }
-  if (state !== "missing") return "skipped";
-
-  await symlink(source, destination, "dir");
-  return "installed";
+  return (await installByLink(source, destination, conflictBehavior, "symlink")).result;
 }
 
 export async function installByCopy(source: string, destination: string): Promise<InstallResult> {
@@ -78,6 +117,9 @@ export async function installByCopy(source: string, destination: string): Promis
 
 function formatInstallError(error: unknown, method: InstallMethod): string {
   const code = (error as NodeJS.ErrnoException).code;
+  if (method === "junction" && (code === "EPERM" || code === "EACCES")) {
+    return "Could not create a junction at the requested location. Choose a target directory you can write to.";
+  }
   if (method === "symlink" && process.platform === "win32" && (code === "EPERM" || code === "EACCES")) {
     return "Windows blocked symlink creation. Enable Developer Mode or run Obsidian with elevated permissions.";
   }
@@ -104,15 +146,20 @@ export class SkillExportService {
 
       try {
         const source = await resolveVaultRelativePath(options.vaultPath, record.vaultPath, { verifyFilesystem: true });
-        const result = options.method === "symlink"
-          ? await installBySymlink(source, destination, options.conflictBehavior)
-          : await installByCopy(source, destination);
-        summary[result].push(record.id);
+        const outcome: LinkOutcome | { result: InstallResult; mechanism: InstallMechanism } = options.method === "copy"
+          ? { result: await installByCopy(source, destination), mechanism: "copy" }
+          : await installByLink(source, destination, options.conflictBehavior, options.method);
+        summary[outcome.result].push(record.id);
 
-        if (result !== "skipped") {
+        if (outcome.result !== "skipped") {
+          if (!summary.mechanisms) summary.mechanisms = {};
+          summary.mechanisms[record.id] = outcome.mechanism;
           const timestamp = new Date().toISOString();
           this.registry.incrementInstall(record.id, timestamp);
-          this.registry.recordEvent(createSkillEvent("skill_installed", record.id, { method: options.method }, timestamp));
+          this.registry.recordEvent(createSkillEvent("skill_installed", record.id, {
+            method: options.method,
+            ...(outcome.mechanism === "junction" ? { linkMechanism: outcome.mechanism } : {})
+          }, timestamp));
         }
       } catch (error) {
         summary.failed.push({ skillId: record.id, reason: formatInstallError(error, options.method) });
