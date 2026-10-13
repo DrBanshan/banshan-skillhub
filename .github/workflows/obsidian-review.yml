@@ -7,11 +7,10 @@ name: Obsidian plugin review
 # the scanner's stylelint and eslint rulesets.
 #
 # The mode stays at pr rather than release on purpose. Release mode also attests the artifacts and
-# creates a draft release, and it stops with a "Cannot create release: not triggered by a tag push"
-# error unless it runs from a tag ref, so it could not run on a push or a pull request at all.
-# scanner-lint is the switch release mode forces on to get the directory's rulesets, and strict is
-# what turns policy findings from warnings into failures, so together they give the same rigour
-# without the publishing half.
+# creates a draft release, and it stops with a Cannot create release error unless it runs from a
+# tag ref, so it could not serve as a push or pull request check. scanner-lint is the switch
+# release mode forces on to obtain the directory's rulesets, and strict is what turns policy
+# findings from warnings into failures, so the pair gives the same rigour without the publishing.
 
 on:
   push:
@@ -26,7 +25,7 @@ permissions:
 jobs:
   review:
     name: Validate and lint as the directory would
-    runsOn: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Check out the commit
         uses: actions/checkout@v7

@@ -1,7 +1,7 @@
 name: Release Obsidian plugin
 
 # Fires when you push a tag whose name matches the version in manifest.json,
-# e.g. `git tag -a 1.0.1 -m "1.0.1" && git push origin 1.0.1`
+# e.g. git tag -a 1.0.1 -m 1.0.1 && git push origin 1.0.1
 on:
   push:
     tags:
@@ -9,18 +9,18 @@ on:
 
 jobs:
   build:
-    runsOn: ubuntu-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          nodeVersion: "18.x"
+          node-version: "18.x"
 
       - name: Build plugin
         run: |
