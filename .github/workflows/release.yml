@@ -1,50 +1,37 @@
 name: Release Obsidian plugin
 
-# Fires when you push a tag whose name matches the version in manifest.json,
-# e.g. git tag -a 1.0.1 -m 1.0.1 && git push origin 1.0.1
+# The documented release workflow from the official obsidian-workflows action, the same shape the
+# action's own release.yml uses: build, attest the artifacts, and open a draft release that you
+# publish by hand from the Releases page. Release mode refuses to run unless the ref is a tag, so
+# the tag trigger below is load bearing rather than cosmetic.
+#
+# GITHUB_TOKEN is provided automatically by the workflow and needs no secret configured.
 on:
   push:
     tags:
       - "*"
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
-          node-version: "18.x"
+          node-version: 24
 
-      - name: Build plugin
-        run: |
-          npm install
-          npm run build
-
-      # Signed SLSA build-provenance attestation for the release assets
-      # (recommended when submitting the plugin to the community directory).
-      # Remove styles.css below if the plugin ever stops shipping a stylesheet.
-      - name: Generate artifact attestation
-        uses: actions/attest@v4
+      - name: Validate, build, attest and draft the release
+        uses: obsidianmd/obsidian-workflows@v1
         with:
-          subject-path: |
-            main.js
-            manifest.json
-            styles.css
-
-      - name: Create release
+          type: plugin
+          mode: release
+          scanner-lint: "true"
+          lint: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="${GITHUB_REF#refs/tags/}"
-
-          gh release create "$tag" \
-            --title="$tag" \
-            --draft \
-            main.js manifest.json styles.css
