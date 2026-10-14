@@ -1343,7 +1343,7 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
     var _a;
     try {
       return (_a = this.app.vault.getName()) != null ? _a : "";
-    } catch (error) {
+    } catch (e) {
       return "";
     }
   }

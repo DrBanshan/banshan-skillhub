@@ -51,7 +51,7 @@ button.skillhub-toolbar-button {
   border-radius: 10px;
   background-color: var(--interactive-accent);
   box-shadow: none;
-  color: white;
+  color: #ffffff;
   cursor: pointer;
   font-size: var(--font-ui-small);
   font-weight: 500;
@@ -73,7 +73,7 @@ button.skillhub-toolbar-button {
   padding: 0;
   border: none;
   fill: none;
-  stroke: white;
+  stroke: #ffffff;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -81,8 +81,8 @@ button.skillhub-toolbar-button {
 }
 
 .skillhub-toolbar-icon path:first-child {
-  fill: white;
-  stroke: white;
+  fill: #ffffff;
+  stroke: #ffffff;
 }
 
 button.skillhub-toolbar-button:hover {
@@ -311,7 +311,7 @@ button.skillhub-card-action-button:active {
   border-radius: 5px;
   background-color: var(--tooltip-color);
   box-shadow: 0 10px 10px rgba(0, 0, 0, 0.105);
-  color: white;
+  color: #ffffff;
   font-size: 12px;
   font-weight: 600;
   opacity: 0;

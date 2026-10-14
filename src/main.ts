@@ -2,7 +2,7 @@ import { addIcon, FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian
 import { lstat, mkdtemp, rm, unlink } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
-import { applyUninstallPlan, CliError, commandName, installTargetViolation, needsWriteConfirmation, writeConfirmationMessage, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type UninstallCandidate, uninstallDecision, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
+import { applyUninstallPlan, CliError, commandName, installTargetViolation, needsWriteConfirmation, writeConfirmationMessage, rankSkillMatches, registerSkillHubCli, SKILL_ROW_COLUMNS, skillMatches, skillRecordRows, splitSkillSelector, type UninstallCandidate, type CliArgs, type CliCommandDefinition, type CliOutcome, type CliRow, type SkillHubCliBridge } from "./cli";
 import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";

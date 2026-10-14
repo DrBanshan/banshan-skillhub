@@ -117,7 +117,7 @@ export class SkillHubSettingTab extends PluginSettingTab {
   private vaultNameForCli(): string {
     try {
       return this.app.vault.getName() ?? "";
-    } catch (error) {
+    } catch {
       return "";
     }
   }

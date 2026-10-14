@@ -154,9 +154,9 @@ export function parseCliArgs(params: CliData | Record<string, string | true | un
     dryrun: isTruthyParam(raw.dryrun),
     confirm: isTruthyParam(raw.confirm),
     vault: typeof raw.vault === "string" ? raw.vault : undefined,
-    value: (name: string) => (typeof raw[name] === "string" ? (raw[name] as string) : undefined),
+    value: (name: string) => (typeof raw[name] === "string" ? raw[name] : undefined),
     required: (name: string) => {
-      const value = typeof raw[name] === "string" ? (raw[name] as string).trim() : "";
+      const value = typeof raw[name] === "string" ? raw[name].trim() : "";
       if (value.length === 0) throw new CliError(`Missing required parameter ${name}=<value>.`);
       return value;
     },
