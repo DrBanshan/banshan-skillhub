@@ -4,6 +4,8 @@ Banshan Skill Hub is a desktop plugin for importing, organizing, and installing 
 
 Use it when you collect reusable agent skills from GitHub, local folders, or `npx skills add ...`, and want a visual place to manage them before installing selected skills into an agent workspace.
 
+The plugin can also be driven from a shell, without opening a window. Switching on **Enable Skill Hub command line actions** in the settings publishes the `banshan-skillhub` command to Obsidian's command line, where thirteen actions cover listing, search, install, link, uninstall, import, ordering, and settings. Scripts, CI jobs, and agent CLIs can prepare a workspace and check what landed, and the [command line interface](#command-line-interface) section below lists the actions, the flags, and the guardrails.
+
 ## Who It Is For
 
 - People who maintain a personal or team library of AI agent skills.
@@ -78,7 +80,7 @@ Symlink creation depends on OS permissions. On Windows, Developer Mode or elevat
 
 ### Command Line Interface
 
-Turn on **Enable Skill Hub command line actions** in the Skill Hub settings (it ships switched off), with Obsidian's own **Settings -> General -> Command line interface** already enabled on the 1.12.7 or newer installer. The plugin then publishes its actions to the Obsidian command line, and every one of them runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
+Turn on **Enable Skill Hub command line actions** in the Skill Hub settings (it ships switched off), with Obsidian's own **Settings -> General -> Command line interface** already enabled on the 1.13.0 or newer installer. The plugin then publishes its actions to the Obsidian command line, and every one of them runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
 
 ```bash
 obsidian banshan-skillhub
@@ -156,8 +158,35 @@ Skill Hub settings include:
 - Local scan expects either `skills/` or `.agents/skills/` under the chosen directory.
 - Empty folders may not be selectable through the native folder picker because the browser-style directory input needs at least one file to expose a path.
 - The target workspace must allow Skill Hub to create `.agents/skills` and copy or link skill files.
-- The command line interface needs the Obsidian command line interface, which arrived with version 1.12 and is a desktop feature.
+- The command line interface needs Obsidian's command line interface, a desktop feature. The manifest asks for version 1.13.0 or newer, so the plugin will not load below that.
 - Deleting an installed skill clears its links in agent workspaces, because a link points back into the vault.
+
+## Release Notes
+
+### 0.3.0
+
+Published October 14, 2026. Supersedes 0.2.0, which predates the subject of this whole entry.
+
+**New, the command line interface.** Thirteen actions, registered with Obsidian's own command line handler and gated behind a settings switch that ships switched off. Everything runs headless: no view, no modal, no notice. A refused command prints a line starting with `ERROR:`, or carries `ok: false` with a `message` under `format=json`.
+
+```bash
+obsidian vault=MyVault banshan-skillhub:info
+obsidian banshan-skillhub:install skill=find-skills target=C:\work\agent method=symlink
+```
+
+Guardrails arrived with it. Every argument is a `key=value` pair, so a value may begin with a dash. Actions that delete or rewrite shared state need `confirm=1`, and `dryrun=1` reports a plan while leaving the filesystem alone. A target that is a drive root, your home directory, or anywhere inside the vault is refused. `uninstall` removes only what an install recorded, so a link comes away without disturbing the vault copy it pointed at.
+
+**Install method on Windows.** A symlink the system refuses now falls back to a junction rather than failing the install, so links work without Developer Mode or an elevated terminal.
+
+**Install by copy.** The destination is checked before anything is written and skipped when something already occupies it, so a copy install never merges into an existing folder. Entries are written exclusively, which also leaves a destination that appears partway through a copy untouched.
+
+**Settings tab.** Under the command line switch sit the two commands worth running first, filled in for the vault you have open and ready to copy out.
+
+**Testing.** `test.cmd` drives all thirteen actions through the `obsidian` client and judges the replies, the filesystem, or both, over 76 checks. It detects the vault from Obsidian's own registry. Two stand in clients under `tools/cli-harness` run the same suite with no live app.
+
+**Release automation.** Tagging a version runs the official Obsidian release action, which validates, builds, attests the artifacts, and opens a draft release carrying `main.js`, `manifest.json`, and `styles.css`. A separate review job runs the community directory's own lint rulesets over the folder.
+
+Needs Obsidian 1.13.0 or newer, desktop only.
 
 ## Development
 
@@ -190,7 +219,7 @@ It also syncs the root `main.js` bundle for release tracking.
 ### Testing the command line actions
 
 `test.cmd` at the repo root drives every registered action through the `obsidian` client and judges
-each reply, the filesystem, or both, over seventy six checks. Keep Obsidian open with the vault loaded
+each reply, the filesystem, or both, over 76 checks. Keep Obsidian open with the vault loaded
 and run it. The report lands under `%TEMP%\skillhub-cli-test` and the exit code is the number of
 checks that failed.
 
