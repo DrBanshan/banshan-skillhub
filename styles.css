@@ -395,7 +395,6 @@ button.skillhub-card-action-button:active {
   height: 16%;
   border-radius: 0.375em 0.375em 0 0;
   background: linear-gradient(135deg, var(--folder-back-1), var(--folder-back-2));
-  clip-path: polygon(0 0, 82% 0, 100% 100%, 0 100%);
   content: "";
 }
 
