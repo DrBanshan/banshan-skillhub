@@ -11,10 +11,13 @@ name: Obsidian plugin review
 # ref, so it could not serve as a push or pull request check at all. scanner-lint is the switch
 # release mode forces on to obtain the directory's rulesets, and strict is what turns policy
 # findings from warnings into failures, so the pair gives the same rigour without the publishing.
+#
+# There is deliberately no push trigger. Pushing main to cut a release used to drag a review run along
+# with it, and a release asked for on its own should not summon a check nobody asked for. The review
+# therefore runs on pull requests and when started by hand from the Actions tab, so asking for a
+# release cannot cause this one.
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
