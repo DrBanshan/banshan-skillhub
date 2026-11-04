@@ -1137,10 +1137,10 @@ function stripArchiveRoot(entries) {
   return entries.map((entry) => entry.path === first ? { ...entry, path: "" } : entry.path.startsWith(inside) ? { ...entry, path: entry.path.slice(inside.length) } : entry).filter((entry) => entry.path.length > 0);
 }
 async function gunzip(buffer) {
-  if (typeof globalThis.DecompressionStream !== "function") {
+  if (typeof DecompressionStream === "undefined") {
     throw new Error("This build cannot unpack gzip data.");
   }
-  const decompressed = new Blob([new Uint8Array(buffer)]).stream().pipeThrough(new globalThis.DecompressionStream("gzip"));
+  const decompressed = new Blob([new Uint8Array(buffer)]).stream().pipeThrough(new DecompressionStream("gzip"));
   const bytes = await new Response(decompressed).arrayBuffer();
   return Buffer.from(bytes);
 }

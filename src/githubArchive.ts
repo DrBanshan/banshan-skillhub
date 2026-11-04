@@ -146,10 +146,10 @@ export function stripArchiveRoot(entries: ArchiveEntry[]): ArchiveEntry[] {
  * nineteen, so nothing needs to be pulled in for one format.
  */
 export async function gunzip(buffer: Buffer): Promise<Buffer> {
-  if (typeof globalThis.DecompressionStream !== "function") {
+  if (typeof DecompressionStream === "undefined") {
     throw new Error("This build cannot unpack gzip data.");
   }
-  const decompressed = new Blob([new Uint8Array(buffer)]).stream().pipeThrough(new globalThis.DecompressionStream("gzip"));
+  const decompressed = new Blob([new Uint8Array(buffer)]).stream().pipeThrough(new DecompressionStream("gzip"));
   const bytes = await new Response(decompressed).arrayBuffer();
   return Buffer.from(bytes);
 }
