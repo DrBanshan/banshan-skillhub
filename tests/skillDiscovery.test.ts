@@ -25,6 +25,65 @@ describe("discoverSkills", () => {
     expect(result.skills.map((skill) => skill.folderName)).toEqual(["good-skill", "missing-description"]);
   });
 
+  it("discovers a skill one level below a grouping folder", async () => {
+    const sourcePath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
+    const nested = join(sourcePath, "skills", "productivity", "grill-me");
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, "SKILL.md"), "---\nname: Grill me\ndescription: Interrogates a plan\n---\n", "utf8");
+
+    try {
+      const result = await discoverSkills(sourcePath);
+
+      expect(result.missingSkillsFolder).toBe(false);
+      expect(result.skills.map((skill) => skill.folderName)).toEqual(["grill-me"]);
+      expect(result.skills[0].path).toBe(nested);
+      expect(result.skills[0].metadata.name).toBe("Grill me");
+    } finally {
+      await rm(sourcePath, { force: true, recursive: true });
+    }
+  });
+
+  it("does not treat a skill folder as a grouping, nor look two levels past the skills root", async () => {
+    const sourcePath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
+    const skill = join(sourcePath, "skills", "writer");
+    const nestedInsideSkill = join(skill, "examples", "sample");
+    const deepGrouping = join(sourcePath, "skills", "engineering", "archive", "old-skill");
+    await mkdir(nestedInsideSkill, { recursive: true });
+    await mkdir(deepGrouping, { recursive: true });
+    await writeFile(join(skill, "SKILL.md"), "---\nname: Writer\ndescription: Writes\n---\n", "utf8");
+    await writeFile(join(nestedInsideSkill, "SKILL.md"), "---\nname: Sample\ndescription: Example\n---\n", "utf8");
+    await writeFile(join(deepGrouping, "SKILL.md"), "---\nname: Old\ndescription: Aged\n---\n", "utf8");
+
+    try {
+      const result = await discoverSkills(sourcePath);
+
+      // writer counts once even though it holds folders, and archive is a grouping of groupings, which
+      // is where the extra level stops
+      expect(result.skills.map((entry) => entry.folderName)).toEqual(["writer"]);
+    } finally {
+      await rm(sourcePath, { force: true, recursive: true });
+    }
+  });
+
+  it("reports every skill when a grouping holds several", async () => {
+    const sourcePath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
+    const engineering = join(sourcePath, "skills", "engineering");
+    await mkdir(join(engineering, "code-review"), { recursive: true });
+    await mkdir(join(engineering, "grill-with-docs"), { recursive: true });
+    await writeFile(join(engineering, "README.md"), "grouping notes", "utf8");
+    await writeFile(join(engineering, "code-review", "SKILL.md"), "---\nname: Review\ndescription: Reviews\n---\n", "utf8");
+    await writeFile(join(engineering, "grill-with-docs", "SKILL.md"), "---\nname: Docs\ndescription: Interrogates\n---\n", "utf8");
+
+    try {
+      const result = await discoverSkills(sourcePath);
+
+      expect(result.skills.map((skill) => skill.folderName)).toEqual(["code-review", "grill-with-docs"]);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      await rm(sourcePath, { force: true, recursive: true });
+    }
+  });
+
   it("prefers top-level skills over an empty .agents/skills folder", async () => {
     const sourcePath = await mkdtemp(join(tmpdir(), "skillhub-discovery-"));
     const skillPath = join(sourcePath, "skills", "writer");

@@ -1,3 +1,4 @@
+import type { Dirent } from "fs";
 import { access, readFile, readdir } from "fs/promises";
 import { join, basename } from "path";
 
@@ -24,6 +25,8 @@ export interface DiscoveryWarning {
   path: string;
   message: string;
 }
+
+type SkillReadOutcome = "skill" | "unreadable" | "none";
 
 export interface DiscoveryDependencies {
   readFile(path: string): Promise<string>;
@@ -112,21 +115,49 @@ export async function discoverSkills(
   const entries = (await readdir(skillsRoot, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const skills: DiscoveredSkill[] = [];
   const warnings: DiscoveryWarning[] = [];
+
+const readSkill = async (skillPath: string, folderName: string): Promise<SkillReadOutcome> => {
+    const markdownPath = join(skillPath, "SKILL.md");
+    try {
+      const markdown = await dependencies.readFile(markdownPath);
+      const metadata = parseSkillMarkdown(markdown, folderName);
+      skills.push({ folderName, path: skillPath, metadata, warnings: metadata.warnings });
+      return "skill";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        warnings.push({ path: markdownPath, message: error instanceof Error ? error.message : String(error) });
+        // an unreadable frontmatter file still marks this folder as a skill, so it is not treated as a
+        // grouping and reported twice over
+        return "unreadable";
+      }
+      return "none";
+    }
+  };
+
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
 
     const skillPath = join(skillsRoot, entry.name);
-    const markdownPath = join(skillPath, "SKILL.md");
+    if ((await readSkill(skillPath, entry.name)) !== "none") continue;
+
+    // no SKILL.md of its own, so this folder may be a grouping: repositories that organise skills by
+    // discipline keep them at skills/<category>/<skill>/SKILL.md. Exactly one level deeper is examined,
+    // because a deeper walk would reach into whatever else a folder happens to hold
+let grouped: Dirent[];
     try {
-      const markdown = await dependencies.readFile(markdownPath);
-      const metadata = parseSkillMarkdown(markdown, entry.name);
-      skills.push({ folderName: entry.name, path: skillPath, metadata, warnings: metadata.warnings });
+      grouped = await readdir(skillPath, { withFileTypes: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        warnings.push({ path: markdownPath, message: error instanceof Error ? error.message : String(error) });
+        warnings.push({ path: skillPath, message: error instanceof Error ? error.message : String(error) });
       }
+      continue;
+    }
+for (const child of grouped.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!child.isDirectory()) continue;
+      await readSkill(join(skillPath, child.name), child.name);
     }
   }
 
+  skills.sort((a, b) => a.folderName.localeCompare(b.folderName) || a.path.localeCompare(b.path));
   return { skills, missingSkillsFolder: false, warnings };
 }

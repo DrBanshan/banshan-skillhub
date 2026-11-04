@@ -236,16 +236,40 @@ export class GitHubSkillDownloader {
     }
 
     if (rootPath === location.skillsPath) {
-      candidates.push(...rootEntries
-        .filter((entry) => entry.type === "dir")
-        .map((entry) => ({ kind: "folder" as const, name: entry.name, label: entry.name })));
+      for (const entry of rootEntries.filter((item) => item.type === "dir")) {
+        candidates.push(...(await this.expandSkillFolder(location, entry.path)));
+      }
     } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === location.skillsPath)) {
       const folders = await this.listSkillFolders(location);
-      candidates.push(...folders.map((name) => ({ kind: "folder" as const, name, label: name })));
+      for (const folder of folders) {
+        candidates.push(...(await this.expandSkillFolder(location, `${location.skillsPath}/${folder}`)));
+      }
     }
 
     if (candidates.length === 0) throw new MissingSkillsFolderError(rootPath);
     return candidates;
+  }
+
+  /**
+   * Decides whether a folder below the skills root is a skill, and reaches one level further when it is
+   * not. Repositories that group skills by discipline put them at skills/<category>/<skill>/SKILL.md, so
+   * the categories themselves are not skills and offering them would install a whole grouping as one.
+   * The listing that answers the question also carries the answer to what a category contains, so the
+   * extra depth costs one request per top level folder and nothing per skill.
+   */
+  private async expandSkillFolder(location: GitHubSkillLocation, path: string): Promise<GitHubSkillCandidate[]> {
+    const entries = await this.listContents(location, path);
+    const selfSkillPath = appendGitHubPath(path, "SKILL.md");
+    if (entries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === selfSkillPath)) {
+      const name = relativeToSkillsPath(location.skillsPath, path);
+      return [{ kind: "folder", name, label: name }];
+    }
+    return entries
+      .filter((entry) => entry.type === "dir")
+      .map((entry) => {
+        const name = relativeToSkillsPath(location.skillsPath, entry.path);
+        return { kind: "folder" as const, name, label: name };
+      });
   }
 
   async downloadSkillCandidate(
@@ -258,7 +282,7 @@ export class GitHubSkillDownloader {
   }
 
   async downloadSkillFolder(location: GitHubSkillLocation, folderName: string, destination: string): Promise<DiscoveryResult> {
-    if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
+    if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
 
     const selectedPath = `${location.skillsPath}/${folderName}`;
     await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
@@ -273,7 +297,7 @@ export class GitHubSkillDownloader {
     if (!entry) throw new MissingSkillsFolderError(rootPath);
 
     const folderName = rootPath.split("/").filter(Boolean).at(-1) ?? location.repo;
-    if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
+    if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
     await this.downloadFileEntry(location, entry, join(destination, "skills", folderName, "SKILL.md"));
     return discoverSkills(destination);
   }
@@ -341,6 +365,21 @@ function resolveRootPath(location: GitHubSkillLocation): string {
 
 function appendGitHubPath(path: string, name: string): string {
   return path ? `${path}/${name}` : name;
+}
+
+function relativeToSkillsPath(skillsPath: string, path: string): string {
+  const prefix = `${skillsPath}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+/**
+ * Candidate names may now describe a nested skill, category/skill, so the guard walks the segments
+ * instead of rejecting slashes: an empty segment, a dot or a parent reference could escape the skills
+ * folder once the name is joined back onto it.
+ */
+function isSafeSkillPath(name: string): boolean {
+  const segments = name.split("/");
+  return segments.length > 0 && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== ".." && !segment.includes("\\"));
 }
 
 function buildRawFileUrl(location: GitHubSkillLocation, entryPath: string): string {

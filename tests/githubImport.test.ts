@@ -211,6 +211,9 @@ describe("GitHubSkillDownloader", () => {
     const downloader = new GitHubSkillDownloader({
       fetchJson: async (path) => {
         requests.push(path);
+        if (path === "/repos/owner/repo/contents/skills/writer") {
+          return { status: 200, data: [{ type: "file", name: "SKILL.md", path: "skills/writer/SKILL.md" }] };
+        }
         return path.includes("/contents/skills")
           ? { status: 200, data: [{ type: "dir", name: "writer", path: "skills/writer" }] }
           : {
@@ -228,9 +231,11 @@ describe("GitHubSkillDownloader", () => {
       { kind: "root", name: "repo", label: "repo (root SKILL.md)" },
       { kind: "folder", name: "writer", label: "writer" }
     ]);
+    // the third listing is what tells a skill from a grouping: it asks whether skills/writer holds a SKILL.md
     expect(requests).toEqual([
       "/repos/owner/repo/contents",
-      "/repos/owner/repo/contents/skills"
+      "/repos/owner/repo/contents/skills",
+      "/repos/owner/repo/contents/skills/writer"
     ]);
   });
 
@@ -354,6 +359,121 @@ describe("GitHubSkillDownloader", () => {
     ]);
     expect(result.skills.map((skill) => skill.folderName)).toEqual(["writer"]);
     await expect(readFile(join(destination, "skills/writer/docs/guide.md"), "utf8")).resolves.toBe("Guide");
+  });
+
+  it("reaches one level deeper when the skills folders are grouped by category", async () => {
+    const requests: string[] = [];
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => {
+        requests.push(path);
+        if (path.startsWith("/repos/owner/repo/contents/skills/engineering")) {
+          return {
+            status: 200,
+            data: [
+              { type: "dir", name: "code-review", path: "skills/engineering/code-review" },
+              { type: "dir", name: "grill-with-docs", path: "skills/engineering/grill-with-docs" },
+              { type: "file", name: "README.md", path: "skills/engineering/README.md" }
+            ]
+          };
+        }
+        if (path.startsWith("/repos/owner/repo/contents/skills/productivity")) {
+          return {
+            status: 200,
+            data: [
+              { type: "dir", name: "grill-me", path: "skills/productivity/grill-me" },
+              { type: "file", name: "SKILL.md", path: "skills/productivity/SKILL.md" }
+            ]
+          };
+        }
+        if (path.startsWith("/repos/owner/repo/contents/skills/deprecated")) {
+          return { status: 200, data: [{ type: "file", name: "README.md", path: "skills/deprecated/README.md" }] };
+        }
+        if (path.startsWith("/repos/owner/repo/contents/skills?")) {
+          return {
+            status: 200,
+            data: [
+              { type: "dir", name: "engineering", path: "skills/engineering" },
+              { type: "dir", name: "productivity", path: "skills/productivity" },
+              { type: "dir", name: "deprecated", path: "skills/deprecated" }
+            ]
+          };
+        }
+        return { status: 200, data: [{ type: "dir", name: "skills", path: "skills" }] };
+      },
+      downloadFile: async () => 0
+    });
+
+    await expect(downloader.listSkillCandidates({ owner: "owner", repo: "repo", ref: "main", rootPath: "", skillsPath: "skills" })).resolves.toEqual([
+      { kind: "folder", name: "engineering/code-review", label: "engineering/code-review" },
+      { kind: "folder", name: "engineering/grill-with-docs", label: "engineering/grill-with-docs" },
+      // productivity holds its own SKILL.md, so it is a skill in its own right and is not expanded
+      { kind: "folder", name: "productivity", label: "productivity" }
+    ]);
+    // deprecated holds neither a SKILL.md nor skill folders, so it contributes nothing rather than a
+    // grouping that would install as one skill
+    expect(requests).toEqual([
+      "/repos/owner/repo/contents?ref=main",
+      "/repos/owner/repo/contents/skills?ref=main",
+      "/repos/owner/repo/contents/skills/engineering?ref=main",
+      "/repos/owner/repo/contents/skills/productivity?ref=main",
+      "/repos/owner/repo/contents/skills/deprecated?ref=main"
+    ]);
+  });
+
+  it("downloads a nested candidate into its own folder and discovers the staged skill", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloads: string[] = [];
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => {
+        if (path === "/repos/owner/repo/contents/skills/productivity/grill-me?ref=main") {
+          return {
+            status: 200,
+            data: [
+              { type: "file", name: "SKILL.md", path: "skills/productivity/grill-me/SKILL.md" },
+              { type: "dir", name: "agents", path: "skills/productivity/grill-me/agents" }
+            ]
+          };
+        }
+        return {
+          status: 200,
+          data: [{ type: "file", name: "openai.yaml", path: "skills/productivity/grill-me/agents/openai.yaml" }]
+        };
+      },
+      downloadFile: async (url, stagedPath) => {
+        downloads.push(url);
+        const content = stagedPath.endsWith("SKILL.md") ? "---\nname: Grill me\ndescription: Interrogates a plan\n---\n" : "agent config";
+        await writeFile(stagedPath, content, { encoding: "utf8", flush: true });
+        return Buffer.byteLength(content);
+      }
+    });
+
+    const result = await downloader.downloadSkillFolder(
+      { owner: "owner", repo: "repo", ref: "main", rootPath: "", skillsPath: "skills" },
+      "productivity/grill-me",
+      destination
+    );
+
+    expect(result.skills.map((skill) => skill.folderName)).toEqual(["grill-me"]);
+    expect(downloads).toEqual([
+      "https://raw.githubusercontent.com/owner/repo/main/skills/productivity/grill-me/SKILL.md",
+      "https://raw.githubusercontent.com/owner/repo/main/skills/productivity/grill-me/agents/openai.yaml"
+    ]);
+    await expect(readFile(join(destination, "skills/productivity/grill-me/SKILL.md"), "utf8")).resolves.toContain("name: Grill me");
+  });
+
+  it("refuses a nested candidate name that could escape the skills folder", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: [] }),
+      downloadFile: async () => 0
+    });
+    const location = { owner: "owner", repo: "repo", ref: "main", rootPath: "", skillsPath: "skills" };
+
+    for (const name of ["", "../outside", "a/../../b", "a//b", "a/./b", "a\\b", "/a", "a/"]) {
+      await expect(downloader.downloadSkillFolder(location, name, destination)).rejects.toThrow(InvalidGitHubUrlError);
+    }
   });
 
   it("fetches file bytes from the raw host so the api quota is spent only on listings", async () => {

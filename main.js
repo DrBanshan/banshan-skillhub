@@ -679,20 +679,40 @@ async function discoverSkills(scanRoot, dependencies = defaultDiscoveryDependenc
   const entries = (await (0, import_promises3.readdir)(skillsRoot, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const skills = [];
   const warnings = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillPath = (0, import_path5.join)(skillsRoot, entry.name);
+  const readSkill = async (skillPath, folderName) => {
     const markdownPath = (0, import_path5.join)(skillPath, "SKILL.md");
     try {
       const markdown = await dependencies.readFile(markdownPath);
-      const metadata = parseSkillMarkdown(markdown, entry.name);
-      skills.push({ folderName: entry.name, path: skillPath, metadata, warnings: metadata.warnings });
+      const metadata = parseSkillMarkdown(markdown, folderName);
+      skills.push({ folderName, path: skillPath, metadata, warnings: metadata.warnings });
+      return "skill";
     } catch (error) {
       if (error.code !== "ENOENT") {
         warnings.push({ path: markdownPath, message: error instanceof Error ? error.message : String(error) });
+        return "unreadable";
       }
+      return "none";
+    }
+  };
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillPath = (0, import_path5.join)(skillsRoot, entry.name);
+    if (await readSkill(skillPath, entry.name) !== "none") continue;
+    let grouped;
+    try {
+      grouped = await (0, import_promises3.readdir)(skillPath, { withFileTypes: true });
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        warnings.push({ path: skillPath, message: error instanceof Error ? error.message : String(error) });
+      }
+      continue;
+    }
+    for (const child of grouped.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!child.isDirectory()) continue;
+      await readSkill((0, import_path5.join)(skillPath, child.name), child.name);
     }
   }
+  skills.sort((a, b) => a.folderName.localeCompare(b.folderName) || a.path.localeCompare(b.path));
   return { skills, missingSkillsFolder: false, warnings };
 }
 
@@ -825,20 +845,43 @@ var GitHubSkillDownloader = class {
       candidates.push({ kind: "root", name, label: `${name} (root SKILL.md)` });
     }
     if (rootPath === location.skillsPath) {
-      candidates.push(...rootEntries.filter((entry) => entry.type === "dir").map((entry) => ({ kind: "folder", name: entry.name, label: entry.name })));
+      for (const entry of rootEntries.filter((item) => item.type === "dir")) {
+        candidates.push(...await this.expandSkillFolder(location, entry.path));
+      }
     } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === location.skillsPath)) {
       const folders = await this.listSkillFolders(location);
-      candidates.push(...folders.map((name) => ({ kind: "folder", name, label: name })));
+      for (const folder of folders) {
+        candidates.push(...await this.expandSkillFolder(location, `${location.skillsPath}/${folder}`));
+      }
     }
     if (candidates.length === 0) throw new MissingSkillsFolderError(rootPath);
     return candidates;
+  }
+  /**
+   * Decides whether a folder below the skills root is a skill, and reaches one level further when it is
+   * not. Repositories that group skills by discipline put them at skills/<category>/<skill>/SKILL.md, so
+   * the categories themselves are not skills and offering them would install a whole grouping as one.
+   * The listing that answers the question also carries the answer to what a category contains, so the
+   * extra depth costs one request per top level folder and nothing per skill.
+   */
+  async expandSkillFolder(location, path) {
+    const entries = await this.listContents(location, path);
+    const selfSkillPath = appendGitHubPath(path, "SKILL.md");
+    if (entries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === selfSkillPath)) {
+      const name = relativeToSkillsPath(location.skillsPath, path);
+      return [{ kind: "folder", name, label: name }];
+    }
+    return entries.filter((entry) => entry.type === "dir").map((entry) => {
+      const name = relativeToSkillsPath(location.skillsPath, entry.path);
+      return { kind: "folder", name, label: name };
+    });
   }
   async downloadSkillCandidate(location, candidate, destination) {
     if (candidate.kind === "folder") return this.downloadSkillFolder(location, candidate.name, destination);
     return this.downloadRootSkill(location, destination);
   }
   async downloadSkillFolder(location, folderName, destination) {
-    if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
+    if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
     const selectedPath = `${location.skillsPath}/${folderName}`;
     await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
     return discoverSkills(destination);
@@ -851,7 +894,7 @@ var GitHubSkillDownloader = class {
     const entry = entries.find((item) => item.type === "file" && item.name === "SKILL.md" && item.path === rootSkillPath);
     if (!entry) throw new MissingSkillsFolderError(rootPath);
     const folderName = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
-    if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
+    if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
     await this.downloadFileEntry(location, entry, (0, import_path6.join)(destination, "skills", folderName, "SKILL.md"));
     return discoverSkills(destination);
   }
@@ -902,6 +945,14 @@ function resolveRootPath(location) {
 }
 function appendGitHubPath(path, name) {
   return path ? `${path}/${name}` : name;
+}
+function relativeToSkillsPath(skillsPath, path) {
+  const prefix = `${skillsPath}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+function isSafeSkillPath(name) {
+  const segments = name.split("/");
+  return segments.length > 0 && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== ".." && !segment.includes("\\"));
 }
 function buildRawFileUrl(location, entryPath) {
   const encodedPath = entryPath.split("/").map((segment) => encodeURIComponent(segment)).join("/");
