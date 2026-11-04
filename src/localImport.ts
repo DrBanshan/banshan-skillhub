@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "child_process";
 import { mkdtemp, rm } from "fs/promises";
-import { delimiter, dirname, join } from "path";
+import { basename, delimiter, dirname, join } from "path";
 import { promisify } from "util";
 import { combineErrors } from "./errors";
 
@@ -17,20 +17,25 @@ interface ResolvedExecutable {
 }
 
 const WINDOWS_EXECUTABLE_PATTERN = /\.(exe|cmd|bat)$/i;
+// windows feeds the validated tokens to the interpreter, so anything cmd would read as syntax is
+// refused here: ampersands and pipes would chain commands, redirections and carets would reshape the
+// line, percent would expand an environment variable, and a quote would end the token early
+const INTERPRETER_UNSAFE_PATTERN = /[&|<>^%!"\n\r]/;
 
 /**
  * Builds the spawn for an already resolved command.
  *
  * Windows goes through the command interpreter on purpose. `where npx` reports the extensionless bash
- * shim first, and neither spawn style can run that file directly: CreateProcess answers ENOENT, and
- * recent Node builds answer EINVAL outright for the .cmd sibling. Routing the whole command through
- * comspec lets cmd.exe apply its own lookup rules, which is the only invocation measured to work from
- * inside the Obsidian process. Everything else spawns the file as given.
+ * shim first, and no direct spawn can execute it: CreateProcess answers ENOENT, and recent Node builds
+ * answer EINVAL for the .cmd sibling when arguments go through execFile. The interpreter is also the
+ * only caller that survives the paths involved: a full C:\Program Files\... token dies in cmd's own
+ * quote handling whichever way the quotes are arranged, while the bare file name resolved through a
+ * bin directory placed first on PATH is the shape measured working inside the Obsidian process, up to
+ * and including a real skills add run. Everything else spawns the resolved file as given.
  */
 function executableSpawn(file: string, args: string[], env?: NodeJS.ProcessEnv): { file: string; args: string[]; options: ExecFileOptions } {
   if (process.platform === "win32" && file.trim().length > 0) {
-    const spec = process.env.ComSpec ?? "cmd.exe";
-    return { file: spec, args: ["/d", "/s", "/c", `"${[file, ...args].join(" ")}"`], options: { env } };
+    return { file: basename(file), args, options: { shell: true, env } };
   }
   return { file, args, options: { env } };
 }
@@ -100,6 +105,9 @@ export function normalizeNpxSkillsCommand(command: string): string[] {
   const tokens = parseCommand(command);
   if (tokens[0] !== "npx" || tokens[1] !== "skills" || tokens[2] !== "add" || !tokens[3]) {
     throw new Error("Invalid npx skills command");
+  }
+  if (tokens.some((token) => INTERPRETER_UNSAFE_PATTERN.test(token))) {
+    throw new Error("Invalid npx skills command: the skill and repository arguments may not contain shell syntax");
   }
   if (tokens.some((token) => token === "--global" || token.startsWith("--global=") || /^-[^-]*g/.test(token))) {
     throw new Error("Global npx skill installation is not allowed");

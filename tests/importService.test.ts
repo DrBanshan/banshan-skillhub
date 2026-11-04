@@ -210,6 +210,19 @@ describe("validateNpxSkillsCommand", () => {
     expect(() => normalizeNpxSkillsCommand(command)).toThrow(/global/i);
   });
 
+  it("refuses tokens carrying interpreter syntax because windows joins the arguments for cmd", () => {
+    for (const command of [
+      "npx skills add owner/repo --skill a&calc",
+      "npx skills add owner/repo --skill a|b",
+      "npx skills add owner/repo --skill %PATH%",
+      "npx skills add owner/repo --skill a^b",
+      "npx skills add https://example.com/x > C:\\vault\\evil.md"
+    ]) {
+      expect(validateNpxSkillsCommand(command), command).toBe(false);
+    }
+    expect(validateNpxSkillsCommand("npx skills add https://github.com/mattpocock/skills --skill grill-me")).toBe(true);
+  });
+
   it("appends deterministic project-scoped import flags", () => {
     expect(normalizeNpxSkillsCommand("npx skills add owner/repo")).toEqual([
       "--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"
@@ -299,56 +312,57 @@ describe("runNpxSkillsAdd", () => {
     const spec = process.env.ComSpec ?? "cmd.exe";
     const shim = "C:\\Program Files\\nodejs\\npx";
     const program = "C:\\Program Files\\nodejs\\npx.cmd";
-    const calls: Array<{ file: string; args: string[]; path?: string }> = [];
+    const calls: Array<{ file: string; args: string[]; path?: string; shell?: boolean | string }> = [];
 
     const resolved = await resolveNpxExecutable(async (file, args, options) => {
-      calls.push({ file, args, path: options.env?.PATH });
-      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      calls.push({ file, args, path: options.env?.PATH, shell: options.shell });
+      if (file === "npx" && options.shell !== true) throw Object.assign(new Error("not found"), { code: "ENOENT" });
       if (args.join(" ") === "/d /s /c where npx") return { stdout: `${shim}\r\n${program}\r\n` };
-      if (args.join(" ") === `/d /s /c "${program} --version"`) return { stdout: "11.9.0\n" };
+      if (file === "npx.cmd" && args.join(" ") === "--version") return { stdout: "11.9.0\n" };
       throw Object.assign(new Error(`unexpected spawn ${file} ${args.join(" ")}`), { code: "ENOENT" });
     });
 
     expect(resolved?.file).toBe(program);
     expect(calls).toEqual([
-      { file: "npx", args: ["--version"], path: undefined },
-      { file: spec, args: ["/d", "/s", "/c", "where npx"], path: undefined },
-      { file: spec, args: ["/d", "/s", "/c", `"${program} --version"`], path: `${"C:\\Program Files\\nodejs"};${process.env.PATH ?? ""}` }
+      { file: "npx", args: ["--version"], path: undefined, shell: undefined },
+      { file: spec, args: ["/d", "/s", "/c", "where npx"], path: undefined, shell: undefined },
+      { file: "npx.cmd", args: ["--version"], path: `${"C:\\Program Files\\nodejs"};${process.env.PATH ?? ""}`, shell: true }
     ]);
   });
 
   windowsOnly("routes an extensionless lookup result through the interpreter so cmd can apply its own rules", async () => {
-    const spec = process.env.ComSpec ?? "cmd.exe";
     const shim = "C:\\Program Files\\nodejs\\npx";
-    const probes: string[] = [];
+    const probes: Array<{ file: string; args: string[]; shell?: boolean | string }> = [];
 
-    const resolved = await resolveNpxExecutable(async (file, args) => {
-      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    const resolved = await resolveNpxExecutable(async (file, args, options) => {
+      if (file === "npx" && options.shell !== true) throw Object.assign(new Error("not found"), { code: "ENOENT" });
       if (args.join(" ") === "/d /s /c where npx") return { stdout: `${shim}\r\n` };
-      probes.push(args.join(" "));
+      probes.push({ file, args, shell: options.shell });
       return { stdout: "11.9.0\n" };
     });
 
+    // the bare name is what cmd needs: a C:\Program Files path dies in the interpreter's own quoting,
+    // while the name resolves through the bin directory the resolver put first on PATH
     expect(resolved?.file).toBe(shim);
-    expect(probes).toEqual([`/d /s /c "${shim} --version"`]);
+    expect(probes).toEqual([{ file: "npx", args: ["--version"], shell: true }]);
   });
 
   windowsOnly("runs the import through the interpreter with the resolved bin directory on PATH", async () => {
-    const spec = process.env.ComSpec ?? "cmd.exe";
     const program = "C:\\Program Files\\nodejs\\npx.cmd";
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
-    const calls: Array<{ file: string; args: string[]; cwd?: string; path?: string }> = [];
+    const calls: Array<{ file: string; args: string[]; cwd?: string; path?: string; shell?: boolean | string }> = [];
 
     await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
-      calls.push({ file, args, cwd: options.cwd, path: options.env?.PATH });
-      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      calls.push({ file, args, cwd: options.cwd, path: options.env?.PATH, shell: options.shell });
+      if (file === "npx" && options.shell !== true) throw Object.assign(new Error("not found"), { code: "ENOENT" });
       if (args.join(" ") === "/d /s /c where npx") return { stdout: `C:\\Program Files\\nodejs\\npx\r\n${program}\r\n` };
       return { stdout: "11.9.0\n" };
     });
 
-    expect(calls.at(-1)?.file).toBe(spec);
-    expect(calls.at(-1)?.args).toEqual(["/d", "/s", "/c", `"${program} --yes skills add owner/repo --agent codex --skill * --yes --copy"`]);
+    expect(calls.at(-1)?.file).toBe("npx.cmd");
+    expect(calls.at(-1)?.args).toEqual(["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"]);
+    expect(calls.at(-1)?.shell).toBe(true);
     expect(calls.at(-1)?.cwd?.startsWith(cwd)).toBe(true);
     expect(calls.at(-1)?.path?.startsWith("C:\\Program Files\\nodejs;")).toBe(true);
   });
@@ -356,18 +370,18 @@ describe("runNpxSkillsAdd", () => {
   it("runs a validated command inside a staging directory below cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
-    const calls: Array<{ file: string; args: string[]; cwd?: string; env?: NodeJS.ProcessEnv }> = [];
+    const calls: Array<{ file: string; args: string[]; cwd?: string; env?: NodeJS.ProcessEnv; shell?: boolean | string }> = [];
 
     const stagingPath = await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
-      calls.push({ file, args, cwd: options.cwd, env: options.env });
+      calls.push({ file, args, cwd: options.cwd, env: options.env, shell: options.shell });
     });
 
     expect(stagingPath.startsWith(cwd)).toBe(true);
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({ file: "npx", args: ["--version"] });
-    // windows wraps the winning command in the interpreter, posix runs it as resolved
+    // windows hands the resolved command to the interpreter by bare name, posix runs it as resolved
     const expected = onWindows
-      ? { file: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", "\"npx --yes skills add owner/repo --agent codex --skill * --yes --copy\""] }
+      ? { file: "npx", args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"], shell: true }
       : { file: "npx", args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"] };
     expect(calls[1]).toMatchObject({
       ...expected,

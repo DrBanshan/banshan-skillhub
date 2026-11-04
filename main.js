@@ -1027,6 +1027,14 @@ var import_child_process = require("child_process");
 var import_promises6 = require("fs/promises");
 var import_path8 = require("path");
 var import_util = require("util");
+var WINDOWS_EXECUTABLE_PATTERN = /\.(exe|cmd|bat)$/i;
+var INTERPRETER_UNSAFE_PATTERN = /[&|<>^%!"\n\r]/;
+function executableSpawn(file, args, env) {
+  if (process.platform === "win32" && file.trim().length > 0) {
+    return { file: (0, import_path8.basename)(file), args, options: { shell: true, env } };
+  }
+  return { file, args, options: { env } };
+}
 var defaultExecFile = async (file, args, options) => {
   return (0, import_util.promisify)(import_child_process.execFile)(file, args, options);
 };
@@ -1086,6 +1094,9 @@ function normalizeNpxSkillsCommand(command) {
   if (tokens[0] !== "npx" || tokens[1] !== "skills" || tokens[2] !== "add" || !tokens[3]) {
     throw new Error("Invalid npx skills command");
   }
+  if (tokens.some((token) => INTERPRETER_UNSAFE_PATTERN.test(token))) {
+    throw new Error("Invalid npx skills command: the skill and repository arguments may not contain shell syntax");
+  }
   if (tokens.some((token) => token === "--global" || token.startsWith("--global=") || /^-[^-]*g/.test(token))) {
     throw new Error("Global npx skill installation is not allowed");
   }
@@ -1109,7 +1120,6 @@ async function isNpxAvailable(execFile = defaultExecFile) {
   return await resolveNpxExecutable(execFile) !== void 0;
 }
 async function resolveNpxExecutable(execFile = defaultExecFile) {
-  var _a;
   try {
     await execFile("npx", ["--version"], {});
     return { file: "npx" };
@@ -1118,11 +1128,20 @@ async function resolveNpxExecutable(execFile = defaultExecFile) {
   for (const lookupArgs of npxLookupArgs()) {
     try {
       const lookupResult = await execFile(userShell(), lookupArgs, {});
-      const executable = (_a = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())) == null ? void 0 : _a.trim();
-      if (!executable) continue;
-      const env = envWithExecutablePath(executable);
-      await execFile(executable, ["--version"], { env });
-      return { file: executable, env };
+      const candidates = stdoutFromExecResult(lookupResult).split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+      const ordered = [
+        ...candidates.filter((candidate) => WINDOWS_EXECUTABLE_PATTERN.test(candidate)),
+        ...candidates.filter((candidate) => !WINDOWS_EXECUTABLE_PATTERN.test(candidate))
+      ];
+      for (const executable of ordered) {
+        try {
+          const env = envWithExecutablePath(executable);
+          const spawn = executableSpawn(executable, ["--version"], env);
+          await execFile(spawn.file, spawn.args, spawn.options);
+          return { file: executable, env };
+        } catch (e) {
+        }
+      }
     } catch (e) {
     }
   }
@@ -1134,16 +1153,14 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   if (!npxExecutable) throw new Error("npx is not available.");
   const stagingPath = await (0, import_promises6.mkdtemp)((0, import_path8.join)(cwd, ".skillhub-npx-import-"));
   try {
-    await execFile(npxExecutable.file, args, {
-      cwd: stagingPath,
-      env: {
-        ...process.env,
-        ...npxExecutable.env,
-        DO_NOT_TRACK: "1",
-        DISABLE_TELEMETRY: "1",
-        CI: "1"
-      }
+    const spawn = executableSpawn(npxExecutable.file, args, {
+      ...process.env,
+      ...npxExecutable.env,
+      DO_NOT_TRACK: "1",
+      DISABLE_TELEMETRY: "1",
+      CI: "1"
     });
+    await execFile(spawn.file, spawn.args, { ...spawn.options, cwd: stagingPath });
   } catch (error) {
     try {
       await (0, import_promises6.rm)(stagingPath, { force: true, recursive: true });
