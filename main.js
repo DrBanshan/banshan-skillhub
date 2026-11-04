@@ -779,6 +779,9 @@ async function resolveGitHubSkillUrl(input, refExists, options = {}) {
   if (!fallback.ref) return fallback;
   if (/^[0-9a-f]{40}$/i.test(fallback.ref)) return fallback;
   const treeSegments = new URL(input).pathname.split("/").filter(Boolean).slice(3);
+  if (options.repoInfo && treeSegments.join("/") === options.repoInfo.defaultBranch) {
+    return parseGitHubSkillUrl(input, { knownRefs: [options.repoInfo.defaultBranch] });
+  }
   const configuredProbeLimit = Math.max(0, Math.floor((_a = options.maxProbes) != null ? _a : DEFAULT_GITHUB_REF_PROBE_LIMIT));
   const maxProbes = Math.min(configuredProbeLimit, (_c = (_b = options.requestBudget) == null ? void 0 : _b.remainingRequests) != null ? _c : configuredProbeLimit);
   let probes = 0;
@@ -849,7 +852,7 @@ var GitHubSkillDownloader = class {
     if (!entry) throw new MissingSkillsFolderError(rootPath);
     const folderName = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
     if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
-    await this.downloadFileEntry(entry, (0, import_path6.join)(destination, "skills", folderName, "SKILL.md"));
+    await this.downloadFileEntry(location, entry, (0, import_path6.join)(destination, "skills", folderName, "SKILL.md"));
     return discoverSkills(destination);
   }
   async downloadContents(location, path, destination, selectedPath, depth) {
@@ -862,11 +865,10 @@ var GitHubSkillDownloader = class {
         continue;
       }
       const stagedPath = (0, import_path6.join)(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
-      await this.downloadFileEntry(entry, stagedPath);
+      await this.downloadFileEntry(location, entry, stagedPath);
     }
   }
-  async downloadFileEntry(entry, stagedPath) {
-    if (!entry.download_url) throw new GitHubImportLimitError(entry.path);
+  async downloadFileEntry(location, entry, stagedPath) {
     if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
     if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
       throw new GitHubImportLimitError(entry.path);
@@ -874,7 +876,7 @@ var GitHubSkillDownloader = class {
     this.consumeRequest(entry.path);
     this.files += 1;
     await (0, import_promises4.mkdir)((0, import_path6.dirname)(stagedPath), { recursive: true });
-    const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath, this.limits.maxBytes - this.bytes);
+    const downloadedBytes = await this.dependencies.downloadFile(buildRawFileUrl(location, entry.path), stagedPath, this.limits.maxBytes - this.bytes);
     this.bytes += downloadedBytes;
     if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
       throw new GitHubImportLimitError(entry.path);
@@ -900,6 +902,11 @@ function resolveRootPath(location) {
 }
 function appendGitHubPath(path, name) {
   return path ? `${path}/${name}` : name;
+}
+function buildRawFileUrl(location, entryPath) {
+  const encodedPath = entryPath.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  const ref = location.ref ? encodeURIComponent(location.ref) : "HEAD";
+  return `https://raw.githubusercontent.com/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/${ref}/${encodedPath}`;
 }
 function isWithinPath(path, root) {
   const pathSegments = path.split("/");
@@ -3120,6 +3127,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     super(...arguments);
     this.data = createEmptySkillHubData();
     this.registry = new SkillRegistry(this.data);
+    this.repoMetadataCache = /* @__PURE__ */ new Map();
   }
   async onload() {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -3175,7 +3183,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
       const location = await resolveGitHubSkillUrl(
         url,
         (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
-        { requestBudget }
+        { requestBudget, repoInfo: await this.githubRepoInfo(url) }
       );
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
@@ -4120,5 +4128,31 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
       }
     }
     return false;
+  }
+  /**
+   * One metadata request answers the default branch for every tree URL of the repository, which is what
+   * the ref probes exist to discover. The result, including a failed lookup, is kept for the session so
+   * repeated imports of the same repository spend nothing, and the anonymous api quota stays intact.
+   */
+  async githubRepoInfo(url) {
+    var _a;
+    let owner;
+    let repo;
+    try {
+      ({ owner, repo } = parseGitHubSkillUrl(url));
+    } catch (e) {
+      return void 0;
+    }
+    const key = `${owner}/${repo}`;
+    if (this.repoMetadataCache.has(key)) return this.repoMetadataCache.get(key);
+    let info;
+    try {
+      const response = await (0, import_obsidian4.requestUrl)({ url: `https://api.github.com/repos/${owner}/${repo}`, throw: false });
+      const defaultBranch = response.status === 200 ? (_a = response.json) == null ? void 0 : _a.default_branch : void 0;
+      if (typeof defaultBranch === "string" && defaultBranch.length > 0) info = { defaultBranch };
+    } catch (e) {
+    }
+    this.repoMetadataCache.set(key, info);
+    return info;
   }
 };

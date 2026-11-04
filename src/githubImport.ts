@@ -32,6 +32,16 @@ export interface ParseGitHubSkillUrlOptions {
 export interface ResolveGitHubSkillUrlOptions {
   maxProbes?: number;
   requestBudget?: GitHubRequestBudget;
+  repoInfo?: GitHubRepoInfo | undefined;
+}
+
+/**
+ * The slice of repository metadata the resolver needs. default_branch is the answer to the question the
+ * ref probes ask one at a time, and one GET /repos/{owner}/{repo} serves every tree URL of the
+ * repository, so the caller caches it per instance.
+ */
+export interface GitHubRepoInfo {
+  defaultBranch: string;
 }
 
 export interface GitHubContentEntry {
@@ -165,6 +175,11 @@ export async function resolveGitHubSkillUrl(
   if (/^[0-9a-f]{40}$/i.test(fallback.ref)) return fallback;
 
   const treeSegments = new URL(input).pathname.split("/").filter(Boolean).slice(3);
+  // a tree URL whose leading segments are exactly the default branch is settled by the metadata request
+  // alone, which is the common case and keeps the whole import away from the ref endpoint
+  if (options.repoInfo && treeSegments.join("/") === options.repoInfo.defaultBranch) {
+    return parseGitHubSkillUrl(input, { knownRefs: [options.repoInfo.defaultBranch] });
+  }
   const configuredProbeLimit = Math.max(0, Math.floor(options.maxProbes ?? DEFAULT_GITHUB_REF_PROBE_LIMIT));
   const maxProbes = Math.min(configuredProbeLimit, options.requestBudget?.remainingRequests ?? configuredProbeLimit);
   let probes = 0;
@@ -259,7 +274,7 @@ export class GitHubSkillDownloader {
 
     const folderName = rootPath.split("/").filter(Boolean).at(-1) ?? location.repo;
     if (!folderName || folderName.includes("/") || folderName.includes("\\")) throw new InvalidGitHubUrlError(folderName);
-    await this.downloadFileEntry(entry, join(destination, "skills", folderName, "SKILL.md"));
+    await this.downloadFileEntry(location, entry, join(destination, "skills", folderName, "SKILL.md"));
     return discoverSkills(destination);
   }
 
@@ -281,12 +296,11 @@ export class GitHubSkillDownloader {
       }
 
       const stagedPath = join(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
-      await this.downloadFileEntry(entry, stagedPath);
+      await this.downloadFileEntry(location, entry, stagedPath);
     }
   }
 
-  private async downloadFileEntry(entry: GitHubContentEntry, stagedPath: string): Promise<void> {
-    if (!entry.download_url) throw new GitHubImportLimitError(entry.path);
+  private async downloadFileEntry(location: GitHubSkillLocation, entry: GitHubContentEntry, stagedPath: string): Promise<void> {
     if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
     if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
       throw new GitHubImportLimitError(entry.path);
@@ -294,7 +308,10 @@ export class GitHubSkillDownloader {
     this.consumeRequest(entry.path);
     this.files += 1;
     await mkdir(dirname(stagedPath), { recursive: true });
-    const downloadedBytes = await this.dependencies.downloadFile(entry.download_url, stagedPath, this.limits.maxBytes - this.bytes);
+    // the file bytes come from the raw host rather than the listing's download_url: api.github.com
+    // answers sixty anonymous requests an hour for the whole network, and the listing alone can spend
+    // them, while the raw host carries the payload without touching that quota
+    const downloadedBytes = await this.dependencies.downloadFile(buildRawFileUrl(location, entry.path), stagedPath, this.limits.maxBytes - this.bytes);
     this.bytes += downloadedBytes;
     if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
       throw new GitHubImportLimitError(entry.path);
@@ -324,6 +341,13 @@ function resolveRootPath(location: GitHubSkillLocation): string {
 
 function appendGitHubPath(path: string, name: string): string {
   return path ? `${path}/${name}` : name;
+}
+
+function buildRawFileUrl(location: GitHubSkillLocation, entryPath: string): string {
+  const encodedPath = entryPath.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  // HEAD asks the raw host for the repository default branch, which is what a refless location means
+  const ref = location.ref ? encodeURIComponent(location.ref) : "HEAD";
+  return `https://raw.githubusercontent.com/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/${ref}/${encodedPath}`;
 }
 
 function isWithinPath(path: string, root: string): boolean {

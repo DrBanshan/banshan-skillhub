@@ -7,7 +7,7 @@ import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
-import { GitHubRequestBudget, GitHubSkillDownloader, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry } from "./githubImport";
+import { GitHubRequestBudget, GitHubSkillDownloader, parseGitHubSkillUrl, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo } from "./githubImport";
 import { SkillImportService, type ImportResult } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -37,6 +37,7 @@ const CLI_INSTALL_COLUMNS = ["name", "decision", "destination", "mechanism", "re
 export default class SkillHubPlugin extends Plugin {
   data: SkillHubData = createEmptySkillHubData();
   registry = new SkillRegistry(this.data);
+  private readonly repoMetadataCache = new Map<string, GitHubRepoInfo | undefined>();
 
   async onload(): Promise<void> {
     const saved = (await this.loadData()) as (Partial<SkillHubData> & { bundleNames?: Record<string, string> }) | null;
@@ -97,7 +98,7 @@ export default class SkillHubPlugin extends Plugin {
       const location = await resolveGitHubSkillUrl(
         url,
         (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
-        { requestBudget }
+        { requestBudget, repoInfo: await this.githubRepoInfo(url) }
       );
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
@@ -1120,5 +1121,32 @@ export default class SkillHubPlugin extends Plugin {
       }
     }
     return false;
+  }
+
+  /**
+   * One metadata request answers the default branch for every tree URL of the repository, which is what
+   * the ref probes exist to discover. The result, including a failed lookup, is kept for the session so
+   * repeated imports of the same repository spend nothing, and the anonymous api quota stays intact.
+   */
+  private async githubRepoInfo(url: string): Promise<GitHubRepoInfo | undefined> {
+    let owner: string;
+    let repo: string;
+    try {
+      ({ owner, repo } = parseGitHubSkillUrl(url));
+    } catch {
+      return undefined;
+    }
+    const key = `${owner}/${repo}`;
+    if (this.repoMetadataCache.has(key)) return this.repoMetadataCache.get(key);
+    let info: GitHubRepoInfo | undefined;
+    try {
+      const response = await requestUrl({ url: `https://api.github.com/repos/${owner}/${repo}`, throw: false });
+      const defaultBranch = response.status === 200 ? (response.json as { default_branch?: unknown } | null)?.default_branch : undefined;
+      if (typeof defaultBranch === "string" && defaultBranch.length > 0) info = { defaultBranch };
+    } catch {
+      // a metadata miss simply falls back to the ref probes
+    }
+    this.repoMetadataCache.set(key, info);
+    return info;
   }
 }

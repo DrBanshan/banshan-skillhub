@@ -115,6 +115,40 @@ describe("parseGitHubSkillUrl", () => {
     expect(probes).toBe(3);
   });
 
+  it("settles a default branch tree URL from repository metadata without any ref probe", async () => {
+    const checked: string[] = [];
+
+    await expect(resolveGitHubSkillUrl(
+      "https://github.com/mattpocock/skills/tree/main",
+      async (_owner, _repo, candidate) => {
+        checked.push(candidate);
+        return false;
+      },
+      { repoInfo: { defaultBranch: "main" } }
+    )).resolves.toEqual({
+      owner: "mattpocock",
+      repo: "skills",
+      ref: "main",
+      rootPath: "",
+      skillsPath: "skills"
+    });
+    expect(checked).toEqual([]);
+  });
+
+  it("still probes when the metadata default branch does not match the tree path", async () => {
+    const checked: string[] = [];
+
+    await expect(resolveGitHubSkillUrl(
+      "https://github.com/owner/repo/tree/feature/x/packages/demo",
+      async (_owner, _repo, candidate) => {
+        checked.push(candidate);
+        return candidate === "feature/x";
+      },
+      { repoInfo: { defaultBranch: "main" } }
+    )).resolves.toMatchObject({ ref: "feature/x" });
+    expect(checked).toContain("feature/x");
+  });
+
   it("uses a direct skills folder as the scan path", () => {
     expect(parseGitHubSkillUrl("https://github.com/owner/repo/tree/main/skills")).toEqual({
       owner: "owner",
@@ -232,7 +266,7 @@ describe("GitHubSkillDownloader", () => {
 
     expect(candidates).toEqual([{ kind: "root", name: "reviewer", label: "reviewer (root SKILL.md)" }]);
     expect(downloads).toEqual([
-      { url: "https://files/root-skill", path: join(destination, "skills/reviewer/SKILL.md") }
+      { url: "https://raw.githubusercontent.com/owner/repo/main/packages/reviewer/SKILL.md", path: join(destination, "skills/reviewer/SKILL.md") }
     ]);
     expect(result.skills.map((skill) => skill.metadata.name)).toEqual(["Reviewer"]);
     await expect(readFile(join(destination, "skills/reviewer/README.md"), "utf8")).rejects.toThrow();
@@ -298,7 +332,7 @@ describe("GitHubSkillDownloader", () => {
       },
       downloadFile: async (url, path) => {
         downloads.push({ url, path });
-        const content = url === "https://files/skill" ? "---\nname: Writer\ndescription: Writes\n---\n" : "Guide";
+        const content = path.endsWith("SKILL.md") ? "---\nname: Writer\ndescription: Writes\n---\n" : "Guide";
         await writeFile(path, content, { encoding: "utf8", flush: true });
         return Buffer.byteLength(content);
       }
@@ -315,11 +349,50 @@ describe("GitHubSkillDownloader", () => {
       "/repos/owner/repo/contents/skills/writer/docs?ref=main"
     ]);
     expect(downloads).toEqual([
-      { url: "https://files/skill", path: join(destination, "skills/writer/SKILL.md") },
-      { url: "https://files/guide", path: join(destination, "skills/writer/docs/guide.md") }
+      { url: "https://raw.githubusercontent.com/owner/repo/main/skills/writer/SKILL.md", path: join(destination, "skills/writer/SKILL.md") },
+      { url: "https://raw.githubusercontent.com/owner/repo/main/skills/writer/docs/guide.md", path: join(destination, "skills/writer/docs/guide.md") }
     ]);
     expect(result.skills.map((skill) => skill.folderName)).toEqual(["writer"]);
     await expect(readFile(join(destination, "skills/writer/docs/guide.md"), "utf8")).resolves.toBe("Guide");
+  });
+
+  it("fetches file bytes from the raw host so the api quota is spent only on listings", async () => {
+    const destination = await mkdtemp(join(tmpdir(), "skillhub-github-import-"));
+    temporaryDirectories.push(destination);
+    const downloads: string[] = [];
+    // no download_url anywhere: the listing is enough, the raw host address is derived from the location
+    const entries = [
+      { type: "file" as const, name: "SKILL.md", path: "skills/writer/SKILL.md" },
+      { type: "file" as const, name: "guide.md", path: "skills/writer/guide.md" }
+    ];
+
+    const withRef = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: entries }),
+      downloadFile: async (url, path) => {
+        downloads.push(url);
+        await writeFile(path, "x", "utf8");
+        return 1;
+      }
+    });
+    await withRef.downloadSkillFolder({ owner: "owner", repo: "repo", ref: "feature/x", skillsPath: "skills" }, "writer", destination);
+
+    const withoutRef = new GitHubSkillDownloader({
+      fetchJson: async () => ({ status: 200, data: entries }),
+      downloadFile: async (url, path) => {
+        downloads.push(url);
+        await writeFile(path, "x", "utf8");
+        return 1;
+      }
+    });
+    await withoutRef.downloadSkillFolder({ owner: "owner", repo: "repo", skillsPath: "skills" }, "writer", destination);
+
+    expect(downloads).toEqual([
+      "https://raw.githubusercontent.com/owner/repo/feature%2Fx/skills/writer/SKILL.md",
+      "https://raw.githubusercontent.com/owner/repo/feature%2Fx/skills/writer/guide.md",
+      "https://raw.githubusercontent.com/owner/repo/HEAD/skills/writer/SKILL.md",
+      "https://raw.githubusercontent.com/owner/repo/HEAD/skills/writer/guide.md"
+    ]);
+    expect(downloads.some((url) => url.includes("api.github.com"))).toBe(false);
   });
 
   it("reports a missing skills folder from a 404 response", async () => {
