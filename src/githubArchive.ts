@@ -224,6 +224,43 @@ export interface GitHubArchiveDependencies {
   probeArchive(url: string): Promise<boolean>;
 }
 
+/** The slice of an http response the archive route reads, shaped so Obsidian's requestUrl satisfies it. */
+export interface GitHubArchiveResponse {
+  status: number;
+  arrayBuffer: ArrayBuffer;
+  text?: string;
+}
+
+export interface GitHubArchiveRequest {
+  (url: string, method?: string): Promise<GitHubArchiveResponse>;
+}
+
+/**
+ * The two requests the archive route makes, expressed once so the plugin hands this to its http client and
+ * the wiring is testable without one. The size guard sits here rather than in the caller because a client
+ * that has already buffered the body cannot be told to stop; it can be told to throw.
+ */
+export function createArchiveDependencies(request: GitHubArchiveRequest): GitHubArchiveDependencies {
+  return {
+    fetchArchive: async (url, maxBytes) => {
+      const response = await request(url);
+      const bytes = response.arrayBuffer.byteLength;
+      if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
+      return { status: response.status, body: response.arrayBuffer };
+    },
+    probeArchive: async (url) => (await request(url, "HEAD")).status === 200
+  };
+}
+
+/**
+ * The repository page carries the default branch in the description of itself, which is how the archive
+ * route answers the one question codeload cannot. Only reached when the cheaper probes miss.
+ */
+export function defaultBranchFromPage(html: string | undefined): string | undefined {
+  const match = html ? /"defaultBranch":"([^"]{1,200})"/.exec(html) : null;
+  return match ? match[1] : undefined;
+}
+
 /**
  * Reaches a repository through codeload instead of the api. The api answers sixty anonymous requests an
  * hour for every machine behind one address, which an office spends before lunch; the archive host carries

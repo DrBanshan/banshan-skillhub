@@ -8,7 +8,7 @@ import { inspectDestination, SkillExportService, type InstallLinkMechanism, type
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
 import { GitHubRateLimitedError, GitHubRequestBudget, GitHubSkillDownloader, githubRateLimitFromResponse, githubRequestFailure, parseGitHubSkillUrl, retryWhenRateLimited, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo, type GitHubSkillCandidate, type GitHubSkillLocation } from "./githubImport";
-import { GitHubArchiveDownloader, GitHubArchiveNotFoundError, GitHubArchiveTooLargeError } from "./githubArchive";
+import { createArchiveDependencies, defaultBranchFromPage, GitHubArchiveDownloader, GitHubArchiveNotFoundError } from "./githubArchive";
 import { SkillImportService, type ImportResult } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -184,16 +184,9 @@ export default class SkillHubPlugin extends Plugin {
 
   private async createArchivePlan(url: string): Promise<GitHubImportPlan> {
     const location = parseGitHubSkillUrl(url);
-    const downloader = new GitHubArchiveDownloader({
-      fetchArchive: async (archiveUrl, maxBytes) => {
-        const response = await requestUrl({ url: archiveUrl, throw: false });
-        const bytes = response.arrayBuffer.byteLength;
-        if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
-        return { status: response.status, body: response.arrayBuffer };
-      },
-      // a HEAD settles whether a ref has an archive without paying for a wrong guess
-      probeArchive: async (archiveUrl) => (await requestUrl({ url: archiveUrl, method: "HEAD", throw: false })).status === 200
-    });
+    const downloader = new GitHubArchiveDownloader(
+      createArchiveDependencies(async (archiveUrl, method) => await requestUrl({ url: archiveUrl, method, throw: false }))
+    );
 
     const knownBranch = this.repoMetadataCache.get(`${location.owner}/${location.repo}`)?.defaultBranch;
     const plan = (candidates: GitHubSkillCandidate[]): GitHubImportPlan => ({
@@ -224,8 +217,8 @@ export default class SkillHubPlugin extends Plugin {
     let info: GitHubRepoInfo | undefined;
     try {
       const response = await requestUrl({ url: `https://github.com/${location.owner}/${location.repo}`, throw: false });
-      const match = response.status === 200 ? /"defaultBranch":"([^"]{1,200})"/.exec(response.text ?? "") : null;
-      if (match) info = { defaultBranch: match[1] };
+      const match = response.status === 200 ? defaultBranchFromPage(response.text) : undefined;
+      if (match) info = { defaultBranch: match };
     } catch {
       // the ref probes still get their chance
     }

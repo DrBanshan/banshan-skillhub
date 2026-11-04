@@ -1195,6 +1195,21 @@ var GitHubArchiveTreeSource = class {
     return bytes.byteLength;
   }
 };
+function createArchiveDependencies(request) {
+  return {
+    fetchArchive: async (url, maxBytes) => {
+      const response = await request(url);
+      const bytes = response.arrayBuffer.byteLength;
+      if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
+      return { status: response.status, body: response.arrayBuffer };
+    },
+    probeArchive: async (url) => (await request(url, "HEAD")).status === 200
+  };
+}
+function defaultBranchFromPage(html) {
+  const match = html ? /"defaultBranch":"([^"]{1,200})"/.exec(html) : null;
+  return match ? match[1] : void 0;
+}
 var GitHubArchiveDownloader = class _GitHubArchiveDownloader {
   constructor(dependencies, limits = {}) {
     this.dependencies = dependencies;
@@ -3645,16 +3660,9 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
   async createArchivePlan(url) {
     var _a;
     const location = parseGitHubSkillUrl(url);
-    const downloader = new GitHubArchiveDownloader({
-      fetchArchive: async (archiveUrl, maxBytes) => {
-        const response = await (0, import_obsidian4.requestUrl)({ url: archiveUrl, throw: false });
-        const bytes = response.arrayBuffer.byteLength;
-        if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
-        return { status: response.status, body: response.arrayBuffer };
-      },
-      // a HEAD settles whether a ref has an archive without paying for a wrong guess
-      probeArchive: async (archiveUrl) => (await (0, import_obsidian4.requestUrl)({ url: archiveUrl, method: "HEAD", throw: false })).status === 200
-    });
+    const downloader = new GitHubArchiveDownloader(
+      createArchiveDependencies(async (archiveUrl, method) => await (0, import_obsidian4.requestUrl)({ url: archiveUrl, method, throw: false }))
+    );
     const knownBranch = (_a = this.repoMetadataCache.get(`${location.owner}/${location.repo}`)) == null ? void 0 : _a.defaultBranch;
     const plan = (candidates) => ({
       candidates,
@@ -3674,14 +3682,14 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
    * archive route answers the one question codeload cannot. Only reached when the cheaper probes miss.
    */
   async githubDefaultBranchFromPage(location) {
-    var _a, _b;
+    var _a;
     const key = `${location.owner}/${location.repo}`;
     if (this.repoMetadataCache.has(key)) return (_a = this.repoMetadataCache.get(key)) == null ? void 0 : _a.defaultBranch;
     let info;
     try {
       const response = await (0, import_obsidian4.requestUrl)({ url: `https://github.com/${location.owner}/${location.repo}`, throw: false });
-      const match = response.status === 200 ? /"defaultBranch":"([^"]{1,200})"/.exec((_b = response.text) != null ? _b : "") : null;
-      if (match) info = { defaultBranch: match[1] };
+      const match = response.status === 200 ? defaultBranchFromPage(response.text) : void 0;
+      if (match) info = { defaultBranch: match };
     } catch (e) {
     }
     this.repoMetadataCache.set(key, info);

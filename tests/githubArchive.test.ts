@@ -9,6 +9,8 @@ import {
   GitHubArchiveNotFoundError,
   GitHubArchiveTooLargeError,
   GitHubArchiveTreeSource,
+  createArchiveDependencies,
+  defaultBranchFromPage,
   parseTar,
   stripArchiveRoot,
   gunzip,
@@ -263,6 +265,45 @@ describe("gunzip", () => {
     const text = skillMarkdown("round").repeat(40);
 
     expect((await gunzip(gzipSync(Buffer.from(text, "utf8")))).toString("utf8")).toBe(text);
+  });
+});
+
+describe("createArchiveDependencies", () => {
+  it("probes with a HEAD, which costs nothing on a wrong guess", async () => {
+    const seen: Array<{ url: string; method?: string }> = [];
+    const deps = createArchiveDependencies(async (url, method) => {
+      seen.push({ url, method });
+      return { status: method === "HEAD" && url.endsWith("/main") ? 200 : 404, arrayBuffer: new ArrayBuffer(0) };
+    });
+
+    expect(await deps.probeArchive("https://codeload.github.com/o/r/tar.gz/main")).toBe(true);
+    expect(await deps.probeArchive("https://codeload.github.com/o/r/tar.gz/nope")).toBe(false);
+    expect(seen).toHaveLength(2);
+    expect(seen.every((request) => request.method === "HEAD")).toBe(true);
+  });
+
+  it("refuses an archive over the allowance before anything unpacks it", async () => {
+    const deps = createArchiveDependencies(async () => ({ status: 200, arrayBuffer: new Uint8Array(4096).buffer }));
+
+    await expect(deps.fetchArchive("https://codeload.github.com/o/r/tar.gz/main", 1024)).rejects.toThrow(GitHubArchiveTooLargeError);
+    await expect(deps.fetchArchive("https://codeload.github.com/o/r/tar.gz/main", 1024)).rejects.toThrow(/over the 1 KB this plugin will download/);
+  });
+
+  it("passes a refused status through instead of inventing one", async () => {
+    const deps = createArchiveDependencies(async () => ({ status: 503, arrayBuffer: new ArrayBuffer(0) }));
+
+    expect((await deps.fetchArchive("https://codeload.github.com/o/r/tar.gz/main", 1024)).status).toBe(503);
+  });
+});
+
+describe("defaultBranchFromPage", () => {
+  it("reads the branch the repository names for itself", () => {
+    expect(defaultBranchFromPage('{"tree":{"items":[]},"defaultBranch":"develop","name":"skills"}')).toBe("develop");
+  });
+
+  it("gives up quietly when the page says nothing", () => {
+    expect(defaultBranchFromPage("<html>Whoa there! Rate limited</html>")).toBeUndefined();
+    expect(defaultBranchFromPage(undefined)).toBeUndefined();
   });
 });
 
