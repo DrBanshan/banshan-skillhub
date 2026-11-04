@@ -10,6 +10,8 @@ import {
   MissingSkillsFolderError,
   githubRateLimitFromResponse,
   githubRequestFailure,
+  GitHubRateLimitedError,
+  retryWhenRateLimited,
   parseGitHubSkillUrl,
   resolveGitHubSkillUrl,
   writeBoundedGitHubResponse
@@ -761,6 +763,72 @@ describe("GitHub rate limit reporting", () => {
     await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", ref: "main", rootPath: "", skillsPath: "skills" })).rejects.toThrow(
       /used up the GitHub quota it shares/
     );
+  });
+});
+
+describe("retryWhenRateLimited", () => {
+  it("never reaches the archive while the api is answering", async () => {
+    let archiveRuns = 0;
+
+    const result = await retryWhenRateLimited(
+      async () => "api",
+      async () => {
+        archiveRuns += 1;
+        return "archive";
+      }
+    );
+
+    expect(result).toBe("api");
+    expect(archiveRuns).toBe(0);
+  });
+
+  it("switches to the archive when the shared quota is spent, and reports when it refills", async () => {
+    const resets: (number | undefined)[] = [];
+
+    const result = await retryWhenRateLimited(
+      async () => {
+        throw new GitHubRateLimitedError("this network has used up the GitHub quota it shares", 1790000000);
+      },
+      async () => "archive",
+      (reset) => resets.push(reset)
+    );
+
+    expect(result).toBe("archive");
+    expect(resets).toEqual([1790000000]);
+  });
+
+  it("does not download a repository because a skills folder was missing", async () => {
+    let archiveRuns = 0;
+
+    await expect(
+      retryWhenRateLimited(
+        async () => {
+          throw new MissingSkillsFolderError("skills");
+        },
+        async () => {
+          archiveRuns += 1;
+          return 1;
+        }
+      )
+    ).rejects.toBeInstanceOf(MissingSkillsFolderError);
+    expect(archiveRuns).toBe(0);
+  });
+
+  it("does not mistake some other refusal for the quota", async () => {
+    let archiveRuns = 0;
+
+    await expect(
+      retryWhenRateLimited(
+        async () => {
+          throw githubRequestFailure("contents", 403, { remaining: 30, message: "Resource not accessible by personal access token" });
+        },
+        async () => {
+          archiveRuns += 1;
+          return 1;
+        }
+      )
+    ).rejects.toThrow(/Resource not accessible/);
+    expect(archiveRuns).toBe(0);
   });
 });
 

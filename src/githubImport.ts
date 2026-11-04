@@ -211,46 +211,99 @@ function resolveRef(treeSegments: string[], knownRefs?: string[]): string {
   return treeSegments[0];
 }
 
-export class GitHubSkillDownloader {
-  private readonly limits: GitHubDownloadLimits;
-  private readonly requestBudget: GitHubRequestBudget;
-  private files = 0;
-  private bytes = 0;
+/**
+ * A request refused because the network has spent the anonymous quota it shares. Typed so the caller can
+ * take a different route rather than reading a sentence back out of an error message, and carrying the
+ * refill time so a second import can stay away from that route until the window turns over.
+ */
+export class GitHubRateLimitedError extends Error {
+  constructor(message: string, readonly resetEpochSeconds?: number) {
+    super(message);
+    this.name = "GitHubRateLimitedError";
+  }
+}
+
+/**
+ * Runs the cheap route and falls back to the quota immune one only when the refusal really was the quota.
+ * Kept out of the plugin class so the switch itself can be tested: a repository with no skills folder must
+ * not be answered with a whole repository download, and a network with no quota must not be told its URL
+ * is broken.
+ */
+export async function retryWhenRateLimited<T>(attempt: () => Promise<T>, fallback: () => Promise<T>, onRateLimited?: (resetEpochSeconds?: number) => void): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof GitHubRateLimitedError)) throw error;
+    onRateLimited?.(error.resetEpochSeconds);
+    return fallback();
+  }
+}
+
+export interface GitHubTreeEntry {
+  type: "dir" | "file";
+  name: string;
+  path: string;
+  size?: number;
+}
+
+/**
+ * The two ways of reaching a repository answer to this shape. The contents API answers a listing and the
+ * raw host answers a file request, while a downloaded archive answers both out of memory. Everything that
+ * decides what counts as a skill sits behind this interface, so the two routes cannot drift apart and
+ * offer different skills depending on how much quota the network happens to have.
+ */
+export interface GitHubTreeSource {
+  /** Entries directly below path, where "" is the repository root. Throws MissingSkillsFolderError when there is no such folder. */
+  list(path: string): Promise<GitHubTreeEntry[]>;
+  /** Write one file to destination without exceeding maxBytes, returning the bytes written. */
+  readFile(path: string, destination: string, maxBytes: number): Promise<number>;
+}
+
+export interface GitHubTransferCounts {
+  files: number;
+  bytes: number;
+}
+
+/**
+ * Reads a repository through a GitHubTreeSource to answer which folders are skills, which are groupings of
+ * skills, and what a chosen skill looks like once it is copied into staging.
+ */
+export class SkillTreeImporter {
+  private readonly counts: GitHubTransferCounts;
 
   constructor(
-    private readonly dependencies: GitHubSkillDownloaderDependencies,
-    limits: Partial<GitHubDownloadLimits> = {},
-    requestBudget?: GitHubRequestBudget
+    private readonly source: GitHubTreeSource,
+    private readonly location: GitHubSkillLocation,
+    private readonly limits: GitHubDownloadLimits,
+    counts?: GitHubTransferCounts
   ) {
-    this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
-    this.requestBudget = requestBudget ?? new GitHubRequestBudget(this.limits.maxRequests);
+    this.counts = counts ?? { files: 0, bytes: 0 };
   }
 
-  async listSkillFolders(location: GitHubSkillLocation): Promise<string[]> {
-    const entries = await this.listContents(location, location.skillsPath);
+  async listSkillFolders(): Promise<string[]> {
+    const entries = await this.source.list(this.location.skillsPath);
     return entries.filter((entry) => entry.type === "dir").map((entry) => entry.name);
   }
 
-  async listSkillCandidates(location: GitHubSkillLocation): Promise<GitHubSkillCandidate[]> {
-    const rootPath = resolveRootPath(location);
-    const rootEntries = await this.listContents(location, rootPath);
+  async listSkillCandidates(): Promise<GitHubSkillCandidate[]> {
+    const rootPath = resolveRootPath(this.location);
+    const rootEntries = await this.source.list(rootPath);
     const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
     const hasRootSkill = rootEntries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === rootSkillPath);
     const candidates: GitHubSkillCandidate[] = [];
 
     if (hasRootSkill) {
-      const name = rootPath.split("/").filter(Boolean).at(-1) ?? location.repo;
+      const name = rootPath.split("/").filter(Boolean).at(-1) ?? this.location.repo;
       candidates.push({ kind: "root", name, label: `${name} (root SKILL.md)` });
     }
 
-    if (rootPath === location.skillsPath) {
+    if (rootPath === this.location.skillsPath) {
       for (const entry of rootEntries.filter((item) => item.type === "dir")) {
-        candidates.push(...(await this.expandSkillFolder(location, entry.path)));
+        candidates.push(...(await this.expandSkillFolder(entry.path)));
       }
-    } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === location.skillsPath)) {
-      const folders = await this.listSkillFolders(location);
-      for (const folder of folders) {
-        candidates.push(...(await this.expandSkillFolder(location, `${location.skillsPath}/${folder}`)));
+    } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === this.location.skillsPath)) {
+      for (const folder of await this.listSkillFolders()) {
+        candidates.push(...(await this.expandSkillFolder(`${this.location.skillsPath}/${folder}`)));
       }
     }
 
@@ -262,92 +315,120 @@ export class GitHubSkillDownloader {
    * Decides whether a folder below the skills root is a skill, and reaches one level further when it is
    * not. Repositories that group skills by discipline put them at skills/<category>/<skill>/SKILL.md, so
    * the categories themselves are not skills and offering them would install a whole grouping as one.
-   * The listing that answers the question also carries the answer to what a category contains, so the
-   * extra depth costs one request per top level folder and nothing per skill.
    */
-  private async expandSkillFolder(location: GitHubSkillLocation, path: string): Promise<GitHubSkillCandidate[]> {
-    const entries = await this.listContents(location, path);
+  private async expandSkillFolder(path: string): Promise<GitHubSkillCandidate[]> {
+    const entries = await this.source.list(path);
     const selfSkillPath = appendGitHubPath(path, "SKILL.md");
     if (entries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === selfSkillPath)) {
-      const name = relativeToSkillsPath(location.skillsPath, path);
+      const name = relativeToSkillsPath(this.location.skillsPath, path);
       return [{ kind: "folder", name, label: name }];
     }
     return entries
       .filter((entry) => entry.type === "dir")
       .map((entry) => {
-        const name = relativeToSkillsPath(location.skillsPath, entry.path);
+        const name = relativeToSkillsPath(this.location.skillsPath, entry.path);
         return { kind: "folder" as const, name, label: name };
       });
   }
 
-  async downloadSkillCandidate(
-    location: GitHubSkillLocation,
-    candidate: GitHubSkillCandidate,
-    destination: string
-  ): Promise<DiscoveryResult> {
-    if (candidate.kind === "folder") return this.downloadSkillFolder(location, candidate.name, destination);
-    return this.downloadRootSkill(location, destination);
+  async downloadCandidate(candidate: GitHubSkillCandidate, destination: string): Promise<DiscoveryResult> {
+    if (candidate.kind === "folder") return this.downloadFolder(candidate.name, destination);
+    return this.downloadRootSkill(destination);
   }
 
-  async downloadSkillFolder(location: GitHubSkillLocation, folderName: string, destination: string): Promise<DiscoveryResult> {
+  async downloadFolder(folderName: string, destination: string): Promise<DiscoveryResult> {
     if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
 
-    const selectedPath = `${location.skillsPath}/${folderName}`;
-    await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
+    const selectedPath = `${this.location.skillsPath}/${folderName}`;
+    await this.downloadContents(selectedPath, destination, selectedPath, 0);
     return discoverSkills(destination);
   }
 
-  private async downloadRootSkill(location: GitHubSkillLocation, destination: string): Promise<DiscoveryResult> {
-    const rootPath = resolveRootPath(location);
+  private async downloadRootSkill(destination: string): Promise<DiscoveryResult> {
+    const rootPath = resolveRootPath(this.location);
     const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
-    const entries = await this.listContents(location, rootPath);
+    const entries = await this.source.list(rootPath);
     const entry = entries.find((item) => item.type === "file" && item.name === "SKILL.md" && item.path === rootSkillPath);
     if (!entry) throw new MissingSkillsFolderError(rootPath);
 
-    const folderName = rootPath.split("/").filter(Boolean).at(-1) ?? location.repo;
+    const folderName = rootPath.split("/").filter(Boolean).at(-1) ?? this.location.repo;
     if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
-    await this.downloadFileEntry(location, entry, join(destination, "skills", folderName, "SKILL.md"));
+    await this.writeFile(entry.path, join(destination, "skills", folderName, "SKILL.md"), entry.size);
     return discoverSkills(destination);
   }
 
-  private async downloadContents(
-    location: GitHubSkillLocation,
-    path: string,
-    destination: string,
-    selectedPath: string,
-    depth: number
-  ): Promise<void> {
+  private async downloadContents(path: string, destination: string, selectedPath: string, depth: number): Promise<void> {
     if (depth > this.limits.maxDepth) throw new GitHubImportLimitError(path);
-    const entries = await this.listContents(location, path);
+    const entries = await this.source.list(path);
     for (const entry of entries) {
       if (!isWithinPath(entry.path, selectedPath)) continue;
 
       if (entry.type === "dir") {
-        await this.downloadContents(location, entry.path, destination, selectedPath, depth + 1);
+        await this.downloadContents(entry.path, destination, selectedPath, depth + 1);
         continue;
       }
 
-      const stagedPath = join(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
-      await this.downloadFileEntry(location, entry, stagedPath);
+      const stagedPath = join(destination, "skills", entry.path.slice(`${this.location.skillsPath}/`.length));
+      await this.writeFile(entry.path, stagedPath, entry.size);
     }
   }
 
-  private async downloadFileEntry(location: GitHubSkillLocation, entry: GitHubContentEntry, stagedPath: string): Promise<void> {
-    if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
-    if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
-      throw new GitHubImportLimitError(entry.path);
+  private async writeFile(entryPath: string, stagedPath: string, size?: number): Promise<void> {
+    if (this.counts.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entryPath);
+    if (typeof size === "number" && this.counts.bytes + size > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entryPath);
     }
-    this.consumeRequest(entry.path);
-    this.files += 1;
+
     await mkdir(dirname(stagedPath), { recursive: true });
-    // the file bytes come from the raw host rather than the listing's download_url: api.github.com
-    // answers sixty anonymous requests an hour for the whole network, and the listing alone can spend
-    // them, while the raw host carries the payload without touching that quota
-    const downloadedBytes = await this.dependencies.downloadFile(buildRawFileUrl(location, entry.path), stagedPath, this.limits.maxBytes - this.bytes);
-    this.bytes += downloadedBytes;
-    if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
-      throw new GitHubImportLimitError(entry.path);
+    const written = await this.source.readFile(entryPath, stagedPath, this.limits.maxBytes - this.counts.bytes);
+    this.counts.files += 1;
+    this.counts.bytes += written;
+    if (!Number.isFinite(written) || written < 0 || this.counts.bytes > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entryPath);
     }
+  }
+}
+
+export class GitHubSkillDownloader {
+  private readonly limits: GitHubDownloadLimits;
+  private readonly requestBudget: GitHubRequestBudget;
+  /**
+   * Kept on the downloader rather than the importer so every candidate chosen in one import shares one
+   * allowance, which is what the limits mean.
+   */
+  private readonly counts: GitHubTransferCounts = { files: 0, bytes: 0 };
+
+  constructor(
+    private readonly dependencies: GitHubSkillDownloaderDependencies,
+    limits: Partial<GitHubDownloadLimits> = {},
+    requestBudget?: GitHubRequestBudget
+  ) {
+    this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
+    this.requestBudget = requestBudget ?? new GitHubRequestBudget(this.limits.maxRequests);
+  }
+
+  listSkillFolders(location: GitHubSkillLocation): Promise<string[]> {
+    return this.importer(location).listSkillFolders();
+  }
+
+  listSkillCandidates(location: GitHubSkillLocation): Promise<GitHubSkillCandidate[]> {
+    return this.importer(location).listSkillCandidates();
+  }
+
+  downloadSkillCandidate(location: GitHubSkillLocation, candidate: GitHubSkillCandidate, destination: string): Promise<DiscoveryResult> {
+    return this.importer(location).downloadCandidate(candidate, destination);
+  }
+
+  downloadSkillFolder(location: GitHubSkillLocation, folderName: string, destination: string): Promise<DiscoveryResult> {
+    return this.importer(location).downloadFolder(folderName, destination);
+  }
+
+  private importer(location: GitHubSkillLocation): SkillTreeImporter {
+    const source: GitHubTreeSource = {
+      list: (path) => this.listContents(location, path),
+      readFile: (path, destination, maxBytes) => this.fetchFile(location, path, destination, maxBytes)
+    };
+    return new SkillTreeImporter(source, location, this.limits, this.counts);
   }
 
   private async listContents(location: GitHubSkillLocation, path: string): Promise<GitHubContentEntry[]> {
@@ -361,10 +442,21 @@ export class GitHubSkillDownloader {
     return response.data;
   }
 
+  /**
+   * The file bytes come from the raw host rather than the listing's download_url: api.github.com answers
+   * sixty anonymous requests an hour for the whole network, and the listing alone can spend them, while
+   * the raw host carries the payload without touching that quota.
+   */
+  private async fetchFile(location: GitHubSkillLocation, entryPath: string, destination: string, maxBytes: number): Promise<number> {
+    this.consumeRequest(entryPath);
+    return this.dependencies.downloadFile(buildRawFileUrl(location, entryPath), destination, maxBytes);
+  }
+
   private consumeRequest(path: string): void {
     this.requestBudget.consume(path);
   }
 }
+
 
 // A shared egress address runs through one unauthenticated quota between everyone behind it, so the
 // usual failure is 403 rather than anything about the URL. The status alone sent people hunting for a
@@ -376,7 +468,10 @@ export function githubRequestFailure(context: string, status: number, rateLimit?
     rateLimit !== undefined &&
     (rateLimit.remaining === 0 || /rate limit/i.test(rateLimit.message ?? ""));
   if (quotaExhausted && rateLimit) {
-    return new Error(`${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`);
+    return new GitHubRateLimitedError(
+      `${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`,
+      rateLimit.resetEpochSeconds
+    );
   }
   const message = rateLimit?.message?.trim();
   return new Error(message ? `${base}: ${message}` : base);

@@ -7,7 +7,8 @@ import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
-import { GitHubRequestBudget, GitHubSkillDownloader, githubRateLimitFromResponse, parseGitHubSkillUrl, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo } from "./githubImport";
+import { GitHubRateLimitedError, GitHubRequestBudget, GitHubSkillDownloader, githubRateLimitFromResponse, githubRequestFailure, parseGitHubSkillUrl, retryWhenRateLimited, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo, type GitHubSkillCandidate, type GitHubSkillLocation } from "./githubImport";
+import { GitHubArchiveDownloader, GitHubArchiveNotFoundError, GitHubArchiveTooLargeError } from "./githubArchive";
 import { SkillImportService, type ImportResult } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -34,10 +35,21 @@ const SKILL_HUB_ICON_SVG = `
 
 const CLI_INSTALL_COLUMNS = ["name", "decision", "destination", "mechanism", "reason"];
 
+/**
+ * What an import needs from whichever host served it: the skills on offer and a way to bring one into
+ * staging. The selection dialog and everything after it are the same either way.
+ */
+interface GitHubImportPlan {
+  candidates: GitHubSkillCandidate[];
+  download(candidate: GitHubSkillCandidate, stagingPath: string): Promise<unknown>;
+}
+
 export default class SkillHubPlugin extends Plugin {
   data: SkillHubData = createEmptySkillHubData();
   registry = new SkillRegistry(this.data);
   private readonly repoMetadataCache = new Map<string, GitHubRepoInfo | undefined>();
+  /** the moment the shared anonymous quota refills, after which imports stop asking it */
+  private quotaBlockedUntil = 0;
 
   async onload(): Promise<void> {
     const saved = (await this.loadData()) as (Partial<SkillHubData> & { bundleNames?: Record<string, string> }) | null;
@@ -93,50 +105,132 @@ export default class SkillHubPlugin extends Plugin {
   }
 
   async importFromGitHub(url: string): Promise<void> {
+    let plan: GitHubImportPlan;
     try {
-      const requestBudget = new GitHubRequestBudget();
-      const location = await resolveGitHubSkillUrl(
-        url,
-        (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
-        { requestBudget, repoInfo: await this.githubRepoInfo(url) }
-      );
-      const downloader = new GitHubSkillDownloader({
-        fetchJson: async (path) => {
-          const response = await requestUrl({ url: `https://api.github.com${path}`, throw: false });
-          return {
-            status: response.status,
-            // a rejected request answers with an object rather than the listing, and only the status and
-            // the quota tell anything useful once that happens
-            data: Array.isArray(response.json) ? (response.json as GitHubContentEntry[]) : [],
-            rateLimit: githubRateLimitFromResponse(response.headers, response.json)
-          };
-        },
-        downloadFile: async (downloadUrl, destination, maxBytes) => {
-          const response = await requestUrl({ url: downloadUrl, throw: false });
-          return writeBoundedGitHubResponse(response, destination, maxBytes);
-        }
-      }, {}, requestBudget);
-      const candidates = await downloader.listSkillCandidates(location);
-      new SkillSelectionModal(this.app, candidates.map((candidate) => ({
-        id: `${candidate.kind}:${candidate.name}`,
-        label: candidate.label,
-        value: candidate
-      })), async (selected) => {
-        let stagingPath: string | undefined;
-        try {
-          if (selected.length === 0) return;
-          stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
-          for (const candidate of selected) await downloader.downloadSkillCandidate(location, candidate, stagingPath);
-          const discovered = await discoverSkills(stagingPath);
-          this.showDiscoveryWarnings(discovered.warnings);
-          await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
-        } catch (error) {
-          this.showError(await this.cleanupStagingAfterError(error, stagingPath));
-        }
-      }).open();
+      plan = await this.createGitHubPlan(url);
     } catch (error) {
       this.showError(error);
+      return;
     }
+
+    new SkillSelectionModal(this.app, plan.candidates.map((candidate) => ({
+      id: `${candidate.kind}:${candidate.name}`,
+      label: candidate.label,
+      value: candidate
+    })), async (selected) => {
+      let stagingPath: string | undefined;
+      try {
+        if (selected.length === 0) return;
+        stagingPath = await mkdtemp(join(this.getVaultBasePath(), ".skillhub-github-import-"));
+        for (const candidate of selected) await plan.download(candidate, stagingPath);
+        const discovered = await discoverSkills(stagingPath);
+        this.showDiscoveryWarnings(discovered.warnings);
+        await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
+      } catch (error) {
+        this.showError(await this.cleanupStagingAfterError(error, stagingPath));
+      }
+    }).open();
+  }
+
+  /**
+   * One import, two ways to reach the repository. The api goes first because it is small: a handful of
+   * listings plus the raw bytes of whatever is chosen. It is also the first thing an office network runs
+   * out of, because sixty anonymous requests an hour are shared by everyone behind the one address, so a
+   * refusal on quota quietly switches to the archive host, which carries the whole repository in a single
+   * request and keeps no count of them. Anything else is left to speak for itself: a missing skills folder
+   * is not a quota problem and must not be answered with a download.
+   */
+  private async createGitHubPlan(url: string): Promise<GitHubImportPlan> {
+    if (Date.now() < this.quotaBlockedUntil) return this.createArchivePlan(url);
+
+    return retryWhenRateLimited(
+      () => this.createApiPlan(url),
+      () => this.createArchivePlan(url),
+      (resetEpochSeconds) => {
+        // the response says when the window turns over, so the next import does not spend four requests
+        // finding out what this one already learned
+        if (resetEpochSeconds !== undefined) this.quotaBlockedUntil = resetEpochSeconds * 1000;
+      }
+    );
+  }
+
+  private async createApiPlan(url: string): Promise<GitHubImportPlan> {
+    const requestBudget = new GitHubRequestBudget();
+    const location = await resolveGitHubSkillUrl(
+      url,
+      (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
+      { requestBudget, repoInfo: await this.githubRepoInfo(url) }
+    );
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => {
+        const response = await requestUrl({ url: `https://api.github.com${path}`, throw: false });
+        return {
+          status: response.status,
+          // a rejected request answers with an object rather than the listing, and only the status and
+          // the quota tell anything useful once that happens
+          data: Array.isArray(response.json) ? (response.json as GitHubContentEntry[]) : [],
+          rateLimit: githubRateLimitFromResponse(response.headers, response.json)
+        };
+      },
+      downloadFile: async (downloadUrl, destination, maxBytes) => {
+        const response = await requestUrl({ url: downloadUrl, throw: false });
+        return writeBoundedGitHubResponse(response, destination, maxBytes);
+      }
+    }, {}, requestBudget);
+
+    const candidates = await downloader.listSkillCandidates(location);
+    return { candidates, download: (candidate, stagingPath) => downloader.downloadSkillCandidate(location, candidate, stagingPath) };
+  }
+
+  private async createArchivePlan(url: string): Promise<GitHubImportPlan> {
+    const location = parseGitHubSkillUrl(url);
+    const downloader = new GitHubArchiveDownloader({
+      fetchArchive: async (archiveUrl, maxBytes) => {
+        const response = await requestUrl({ url: archiveUrl, throw: false });
+        const bytes = response.arrayBuffer.byteLength;
+        if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
+        return { status: response.status, body: response.arrayBuffer };
+      },
+      // a HEAD settles whether a ref has an archive without paying for a wrong guess
+      probeArchive: async (archiveUrl) => (await requestUrl({ url: archiveUrl, method: "HEAD", throw: false })).status === 200
+    });
+
+    const knownBranch = this.repoMetadataCache.get(`${location.owner}/${location.repo}`)?.defaultBranch;
+    const plan = (candidates: GitHubSkillCandidate[]): GitHubImportPlan => ({
+      candidates,
+      download: (candidate, stagingPath) => downloader.downloadSkillCandidate(location, candidate, stagingPath)
+    });
+
+    try {
+      return plan(await downloader.listSkillCandidates(location, knownBranch));
+    } catch (error) {
+      // a default branch that is neither the one in the URL nor main nor master is named by the repository
+      // page itself, which is the cheapest thing left to ask
+      if (!(error instanceof GitHubArchiveNotFoundError)) throw error;
+      const branch = await this.githubDefaultBranchFromPage(location);
+      if (!branch) throw error;
+      return plan(await downloader.listSkillCandidates(location, branch));
+    }
+  }
+
+  /**
+   * The repository page carries the default branch in its own description of itself, which is how the
+   * archive route answers the one question codeload cannot. Only reached when the cheaper probes miss.
+   */
+  private async githubDefaultBranchFromPage(location: Pick<GitHubSkillLocation, "owner" | "repo">): Promise<string | undefined> {
+    const key = `${location.owner}/${location.repo}`;
+    if (this.repoMetadataCache.has(key)) return this.repoMetadataCache.get(key)?.defaultBranch;
+
+    let info: GitHubRepoInfo | undefined;
+    try {
+      const response = await requestUrl({ url: `https://github.com/${location.owner}/${location.repo}`, throw: false });
+      const match = response.status === 200 ? /"defaultBranch":"([^"]{1,200})"/.exec(response.text ?? "") : null;
+      if (match) info = { defaultBranch: match[1] };
+    } catch {
+      // the ref probes still get their chance
+    }
+    this.repoMetadataCache.set(key, info);
+    return info?.defaultBranch;
   }
 
   async importFromLocalDirectory(path: string): Promise<void> {
@@ -1121,7 +1215,9 @@ export default class SkillHubPlugin extends Plugin {
           throw: false
         });
         if (response.status === 200) return true;
-        if (response.status !== 404) throw new Error(`GitHub ref request failed with status ${response.status}`);
+        // a quota refusal has to arrive typed rather than as a bare status, or the import reports a
+        // failing ref probe when the network is what actually ran out
+        if (response.status !== 404) throw githubRequestFailure("ref", response.status, githubRateLimitFromResponse(response.headers, response.json));
       } catch (error) {
         if (!String(error).includes("404")) throw error;
       }
@@ -1145,13 +1241,21 @@ export default class SkillHubPlugin extends Plugin {
     const key = `${owner}/${repo}`;
     if (this.repoMetadataCache.has(key)) return this.repoMetadataCache.get(key);
     let info: GitHubRepoInfo | undefined;
+    let quotaFailure: Error | undefined;
     try {
       const response = await requestUrl({ url: `https://api.github.com/repos/${owner}/${repo}`, throw: false });
+      if (response.status !== 200) {
+        const failure = githubRequestFailure("metadata", response.status, githubRateLimitFromResponse(response.headers, response.json));
+        // a repository this request cannot describe is worth shrugging at, because the ref probes can
+        // still find it; a network out of quota is not, because every request after it ends the same way
+        if (failure instanceof GitHubRateLimitedError) quotaFailure = failure;
+      }
       const defaultBranch = response.status === 200 ? (response.json as { default_branch?: unknown } | null)?.default_branch : undefined;
       if (typeof defaultBranch === "string" && defaultBranch.length > 0) info = { defaultBranch };
     } catch {
       // a metadata miss simply falls back to the ref probes
     }
+    if (quotaFailure) throw quotaFailure;
     this.repoMetadataCache.set(key, info);
     return info;
   }

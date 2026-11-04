@@ -24,9 +24,9 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian4 = require("obsidian");
-var import_promises7 = require("fs/promises");
+var import_promises8 = require("fs/promises");
 var import_os = require("os");
-var import_path9 = require("path");
+var import_path10 = require("path");
 
 // src/cli.ts
 var import_path = require("path");
@@ -821,37 +821,51 @@ function resolveRef(treeSegments, knownRefs) {
   }
   return treeSegments[0];
 }
-var GitHubSkillDownloader = class {
-  constructor(dependencies, limits = {}, requestBudget) {
-    this.dependencies = dependencies;
-    this.files = 0;
-    this.bytes = 0;
-    this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
-    this.requestBudget = requestBudget != null ? requestBudget : new GitHubRequestBudget(this.limits.maxRequests);
+var GitHubRateLimitedError = class extends Error {
+  constructor(message, resetEpochSeconds) {
+    super(message);
+    this.resetEpochSeconds = resetEpochSeconds;
+    this.name = "GitHubRateLimitedError";
   }
-  async listSkillFolders(location) {
-    const entries = await this.listContents(location, location.skillsPath);
+};
+async function retryWhenRateLimited(attempt, fallback, onRateLimited) {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof GitHubRateLimitedError)) throw error;
+    onRateLimited == null ? void 0 : onRateLimited(error.resetEpochSeconds);
+    return fallback();
+  }
+}
+var SkillTreeImporter = class {
+  constructor(source, location, limits, counts) {
+    this.source = source;
+    this.location = location;
+    this.limits = limits;
+    this.counts = counts != null ? counts : { files: 0, bytes: 0 };
+  }
+  async listSkillFolders() {
+    const entries = await this.source.list(this.location.skillsPath);
     return entries.filter((entry) => entry.type === "dir").map((entry) => entry.name);
   }
-  async listSkillCandidates(location) {
+  async listSkillCandidates() {
     var _a;
-    const rootPath = resolveRootPath(location);
-    const rootEntries = await this.listContents(location, rootPath);
+    const rootPath = resolveRootPath(this.location);
+    const rootEntries = await this.source.list(rootPath);
     const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
     const hasRootSkill = rootEntries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === rootSkillPath);
     const candidates = [];
     if (hasRootSkill) {
-      const name = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
+      const name = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : this.location.repo;
       candidates.push({ kind: "root", name, label: `${name} (root SKILL.md)` });
     }
-    if (rootPath === location.skillsPath) {
+    if (rootPath === this.location.skillsPath) {
       for (const entry of rootEntries.filter((item) => item.type === "dir")) {
-        candidates.push(...await this.expandSkillFolder(location, entry.path));
+        candidates.push(...await this.expandSkillFolder(entry.path));
       }
-    } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === location.skillsPath)) {
-      const folders = await this.listSkillFolders(location);
-      for (const folder of folders) {
-        candidates.push(...await this.expandSkillFolder(location, `${location.skillsPath}/${folder}`));
+    } else if (rootEntries.some((entry) => entry.type === "dir" && entry.path === this.location.skillsPath)) {
+      for (const folder of await this.listSkillFolders()) {
+        candidates.push(...await this.expandSkillFolder(`${this.location.skillsPath}/${folder}`));
       }
     }
     if (candidates.length === 0) throw new MissingSkillsFolderError(rootPath);
@@ -861,69 +875,97 @@ var GitHubSkillDownloader = class {
    * Decides whether a folder below the skills root is a skill, and reaches one level further when it is
    * not. Repositories that group skills by discipline put them at skills/<category>/<skill>/SKILL.md, so
    * the categories themselves are not skills and offering them would install a whole grouping as one.
-   * The listing that answers the question also carries the answer to what a category contains, so the
-   * extra depth costs one request per top level folder and nothing per skill.
    */
-  async expandSkillFolder(location, path) {
-    const entries = await this.listContents(location, path);
+  async expandSkillFolder(path) {
+    const entries = await this.source.list(path);
     const selfSkillPath = appendGitHubPath(path, "SKILL.md");
     if (entries.some((entry) => entry.type === "file" && entry.name === "SKILL.md" && entry.path === selfSkillPath)) {
-      const name = relativeToSkillsPath(location.skillsPath, path);
+      const name = relativeToSkillsPath(this.location.skillsPath, path);
       return [{ kind: "folder", name, label: name }];
     }
     return entries.filter((entry) => entry.type === "dir").map((entry) => {
-      const name = relativeToSkillsPath(location.skillsPath, entry.path);
+      const name = relativeToSkillsPath(this.location.skillsPath, entry.path);
       return { kind: "folder", name, label: name };
     });
   }
-  async downloadSkillCandidate(location, candidate, destination) {
-    if (candidate.kind === "folder") return this.downloadSkillFolder(location, candidate.name, destination);
-    return this.downloadRootSkill(location, destination);
+  async downloadCandidate(candidate, destination) {
+    if (candidate.kind === "folder") return this.downloadFolder(candidate.name, destination);
+    return this.downloadRootSkill(destination);
   }
-  async downloadSkillFolder(location, folderName, destination) {
+  async downloadFolder(folderName, destination) {
     if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
-    const selectedPath = `${location.skillsPath}/${folderName}`;
-    await this.downloadContents(location, selectedPath, destination, selectedPath, 0);
+    const selectedPath = `${this.location.skillsPath}/${folderName}`;
+    await this.downloadContents(selectedPath, destination, selectedPath, 0);
     return discoverSkills(destination);
   }
-  async downloadRootSkill(location, destination) {
+  async downloadRootSkill(destination) {
     var _a;
-    const rootPath = resolveRootPath(location);
+    const rootPath = resolveRootPath(this.location);
     const rootSkillPath = appendGitHubPath(rootPath, "SKILL.md");
-    const entries = await this.listContents(location, rootPath);
+    const entries = await this.source.list(rootPath);
     const entry = entries.find((item) => item.type === "file" && item.name === "SKILL.md" && item.path === rootSkillPath);
     if (!entry) throw new MissingSkillsFolderError(rootPath);
-    const folderName = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : location.repo;
+    const folderName = (_a = rootPath.split("/").filter(Boolean).at(-1)) != null ? _a : this.location.repo;
     if (!isSafeSkillPath(folderName)) throw new InvalidGitHubUrlError(folderName);
-    await this.downloadFileEntry(location, entry, (0, import_path6.join)(destination, "skills", folderName, "SKILL.md"));
+    await this.writeFile(entry.path, (0, import_path6.join)(destination, "skills", folderName, "SKILL.md"), entry.size);
     return discoverSkills(destination);
   }
-  async downloadContents(location, path, destination, selectedPath, depth) {
+  async downloadContents(path, destination, selectedPath, depth) {
     if (depth > this.limits.maxDepth) throw new GitHubImportLimitError(path);
-    const entries = await this.listContents(location, path);
+    const entries = await this.source.list(path);
     for (const entry of entries) {
       if (!isWithinPath(entry.path, selectedPath)) continue;
       if (entry.type === "dir") {
-        await this.downloadContents(location, entry.path, destination, selectedPath, depth + 1);
+        await this.downloadContents(entry.path, destination, selectedPath, depth + 1);
         continue;
       }
-      const stagedPath = (0, import_path6.join)(destination, "skills", entry.path.slice(`${location.skillsPath}/`.length));
-      await this.downloadFileEntry(location, entry, stagedPath);
+      const stagedPath = (0, import_path6.join)(destination, "skills", entry.path.slice(`${this.location.skillsPath}/`.length));
+      await this.writeFile(entry.path, stagedPath, entry.size);
     }
   }
-  async downloadFileEntry(location, entry, stagedPath) {
-    if (this.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entry.path);
-    if (typeof entry.size === "number" && this.bytes + entry.size > this.limits.maxBytes) {
-      throw new GitHubImportLimitError(entry.path);
+  async writeFile(entryPath, stagedPath, size) {
+    if (this.counts.files >= this.limits.maxFiles) throw new GitHubImportLimitError(entryPath);
+    if (typeof size === "number" && this.counts.bytes + size > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entryPath);
     }
-    this.consumeRequest(entry.path);
-    this.files += 1;
     await (0, import_promises4.mkdir)((0, import_path6.dirname)(stagedPath), { recursive: true });
-    const downloadedBytes = await this.dependencies.downloadFile(buildRawFileUrl(location, entry.path), stagedPath, this.limits.maxBytes - this.bytes);
-    this.bytes += downloadedBytes;
-    if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || this.bytes > this.limits.maxBytes) {
-      throw new GitHubImportLimitError(entry.path);
+    const written = await this.source.readFile(entryPath, stagedPath, this.limits.maxBytes - this.counts.bytes);
+    this.counts.files += 1;
+    this.counts.bytes += written;
+    if (!Number.isFinite(written) || written < 0 || this.counts.bytes > this.limits.maxBytes) {
+      throw new GitHubImportLimitError(entryPath);
     }
+  }
+};
+var GitHubSkillDownloader = class {
+  constructor(dependencies, limits = {}, requestBudget) {
+    this.dependencies = dependencies;
+    /**
+     * Kept on the downloader rather than the importer so every candidate chosen in one import shares one
+     * allowance, which is what the limits mean.
+     */
+    this.counts = { files: 0, bytes: 0 };
+    this.limits = { ...DEFAULT_DOWNLOAD_LIMITS, ...limits };
+    this.requestBudget = requestBudget != null ? requestBudget : new GitHubRequestBudget(this.limits.maxRequests);
+  }
+  listSkillFolders(location) {
+    return this.importer(location).listSkillFolders();
+  }
+  listSkillCandidates(location) {
+    return this.importer(location).listSkillCandidates();
+  }
+  downloadSkillCandidate(location, candidate, destination) {
+    return this.importer(location).downloadCandidate(candidate, destination);
+  }
+  downloadSkillFolder(location, folderName, destination) {
+    return this.importer(location).downloadFolder(folderName, destination);
+  }
+  importer(location) {
+    const source = {
+      list: (path) => this.listContents(location, path),
+      readFile: (path, destination, maxBytes) => this.fetchFile(location, path, destination, maxBytes)
+    };
+    return new SkillTreeImporter(source, location, this.limits, this.counts);
   }
   async listContents(location, path) {
     this.consumeRequest(path);
@@ -935,6 +977,15 @@ var GitHubSkillDownloader = class {
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
     return response.data;
   }
+  /**
+   * The file bytes come from the raw host rather than the listing's download_url: api.github.com answers
+   * sixty anonymous requests an hour for the whole network, and the listing alone can spend them, while
+   * the raw host carries the payload without touching that quota.
+   */
+  async fetchFile(location, entryPath, destination, maxBytes) {
+    this.consumeRequest(entryPath);
+    return this.dependencies.downloadFile(buildRawFileUrl(location, entryPath), destination, maxBytes);
+  }
   consumeRequest(path) {
     this.requestBudget.consume(path);
   }
@@ -944,7 +995,10 @@ function githubRequestFailure(context, status, rateLimit, now = Date.now()) {
   const base = `GitHub ${context} request failed with status ${status}`;
   const quotaExhausted = (status === 403 || status === 429) && rateLimit !== void 0 && (rateLimit.remaining === 0 || /rate limit/i.test((_a = rateLimit.message) != null ? _a : ""));
   if (quotaExhausted && rateLimit) {
-    return new Error(`${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`);
+    return new GitHubRateLimitedError(
+      `${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`,
+      rateLimit.resetEpochSeconds
+    );
   }
   const message = (_b = rateLimit == null ? void 0 : rateLimit.message) == null ? void 0 : _b.trim();
   return new Error(message ? `${base}: ${message}` : base);
@@ -1001,9 +1055,262 @@ function isWithinPath(path, root) {
   return pathSegments.length > rootSegments.length && rootSegments.every((segment, index) => pathSegments[index] === segment);
 }
 
-// src/importService.ts
+// src/githubArchive.ts
 var import_promises5 = require("fs/promises");
 var import_path7 = require("path");
+var BLOCK = 512;
+var DEFAULT_ARCHIVE_LIMITS = {
+  maxRequests: 20,
+  maxFiles: 500,
+  maxBytes: 50 * 1024 * 1024,
+  maxDepth: 20,
+  maxCompressedBytes: 64 * 1024 * 1024,
+  maxUnpackedBytes: 256 * 1024 * 1024,
+  maxEntries: 2e4
+};
+var GitHubArchiveTooLargeError = class extends Error {
+  constructor(unpackedBytes, capBytes, stage = "unpacked") {
+    super(
+      `GitHub repository is ${formatBytes(unpackedBytes)} ${stage}, over the ${formatBytes(capBytes)} this plugin will download.
+Use the npx command for this repository instead.`
+    );
+    this.name = "GitHubArchiveTooLargeError";
+  }
+};
+var GitHubArchiveNotFoundError = class extends Error {
+  constructor(owner, repo, candidates) {
+    super(`GitHub has no downloadable archive for ${owner}/${repo}${candidates.length > 0 ? `: none of ${candidates.join(", ")} could be fetched` : ""}.`);
+    this.name = "GitHubArchiveNotFoundError";
+  }
+};
+function parseTar(buffer, limits = DEFAULT_ARCHIVE_LIMITS) {
+  const entries = [];
+  let offset = 0;
+  let unpackedBytes = 0;
+  let pendingName;
+  while (offset + BLOCK <= buffer.byteLength) {
+    const header = buffer.subarray(offset, offset + BLOCK);
+    if (isZeroBlock(header)) break;
+    const size = readOctal(header, 124, 12);
+    const payloadStart = offset + BLOCK;
+    const nextOffset = payloadStart + Math.ceil(size / BLOCK) * BLOCK;
+    const typeFlag = header[156] === 0 ? "0" : String.fromCharCode(header[156]);
+    const payload = buffer.subarray(payloadStart, payloadStart + size);
+    if (typeFlag === "L") {
+      pendingName = payload.toString("utf8").replace(/\0+$/, "");
+      offset = nextOffset;
+      continue;
+    }
+    if (typeFlag === "x" || typeFlag === "g") {
+      const extended = readPaxPath(payload.toString("utf8"));
+      if (extended !== void 0) pendingName = extended;
+      offset = nextOffset;
+      continue;
+    }
+    const prefix = readString(header, 345, 155);
+    const rawName = prefix ? `${prefix}/${readString(header, 0, 100)}` : readString(header, 0, 100);
+    const name = pendingName != null ? pendingName : normalizeArchivePath(rawName);
+    pendingName = void 0;
+    if (name === void 0) {
+      offset = nextOffset;
+      continue;
+    }
+    if (typeFlag === "5") {
+      entries.push({ path: name, type: "dir", size: 0 });
+    } else if (typeFlag === "0" || typeFlag === "7") {
+      unpackedBytes += size;
+      if (unpackedBytes > limits.maxUnpackedBytes) throw new GitHubArchiveTooLargeError(unpackedBytes, limits.maxUnpackedBytes);
+      if (entries.length >= limits.maxEntries) throw new GitHubArchiveTooLargeError(unpackedBytes, limits.maxUnpackedBytes);
+      entries.push({ path: name, type: "file", size, bytes: Buffer.from(payload) });
+    }
+    offset = nextOffset;
+  }
+  return entries;
+}
+function stripArchiveRoot(entries) {
+  var _a;
+  const first = (_a = entries[0]) == null ? void 0 : _a.path.split("/")[0];
+  if (!first) return entries;
+  const inside = `${first}/`;
+  const covered = entries.every((entry) => entry.path === first || entry.path.startsWith(inside));
+  if (!covered || !entries.some((entry) => entry.path.startsWith(inside))) return entries;
+  return entries.map((entry) => entry.path === first ? { ...entry, path: "" } : entry.path.startsWith(inside) ? { ...entry, path: entry.path.slice(inside.length) } : entry).filter((entry) => entry.path.length > 0);
+}
+async function gunzip(buffer) {
+  if (typeof globalThis.DecompressionStream !== "function") {
+    throw new Error("This build cannot unpack gzip data.");
+  }
+  const decompressed = new Blob([new Uint8Array(buffer)]).stream().pipeThrough(new globalThis.DecompressionStream("gzip"));
+  const bytes = await new Response(decompressed).arrayBuffer();
+  return Buffer.from(bytes);
+}
+var GitHubArchiveTreeSource = class {
+  constructor(entries) {
+    this.children = /* @__PURE__ */ new Map();
+    this.files = /* @__PURE__ */ new Map();
+    const knownDirectories = /* @__PURE__ */ new Set();
+    const register = (dirPath, type, size) => {
+      if (dirPath === "") return;
+      const parent = dirPath.includes("/") ? dirPath.slice(0, dirPath.lastIndexOf("/")) : "";
+      const name = parent ? dirPath.slice(parent.length + 1) : dirPath;
+      if (!this.children.has(parent)) this.children.set(parent, []);
+      const siblings = this.children.get(parent);
+      if (!siblings.some((sibling) => sibling.name === name)) siblings.push({ type, name, path: dirPath, size });
+    };
+    for (const entry of entries) {
+      const parent = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
+      for (let cursor = parent; cursor; cursor = cursor.includes("/") ? cursor.slice(0, cursor.lastIndexOf("/")) : "") {
+        if (knownDirectories.has(cursor)) break;
+        knownDirectories.add(cursor);
+        register(cursor, "dir", 0);
+      }
+      if (entry.type === "dir") {
+        register(entry.path, "dir", 0);
+        knownDirectories.add(entry.path);
+        if (!this.children.has(entry.path)) this.children.set(entry.path, []);
+        continue;
+      }
+      if (!this.children.has(parent)) this.children.set(parent, []);
+      const name = parent ? entry.path.slice(parent.length + 1) : entry.path;
+      const siblings = this.children.get(parent);
+      if (!siblings.some((sibling) => sibling.name === name)) siblings.push({ type: "file", name, path: entry.path, size: entry.size });
+      if (entry.bytes !== void 0) this.files.set(entry.path, entry.bytes);
+    }
+    if (entries.length > 0 && !this.children.has("")) this.children.set("", []);
+    for (const siblings of this.children.values()) siblings.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+  async list(path) {
+    const key = path.replace(/^\.?\/+|\/+$/g, "");
+    const siblings = this.children.get(key);
+    if (siblings === void 0) throw new MissingSkillsFolderError(key);
+    return [...siblings];
+  }
+  async readFile(path, destination, maxBytes) {
+    const key = path.replace(/^\.?\/+|\/+$/g, "");
+    const bytes = this.files.get(key);
+    if (bytes === void 0) throw new MissingSkillsFolderError(key);
+    if (bytes.byteLength > maxBytes) throw new GitHubImportLimitError(key);
+    await (0, import_promises5.mkdir)((0, import_path7.dirname)(destination), { recursive: true });
+    await (0, import_promises5.writeFile)(destination, bytes);
+    return bytes.byteLength;
+  }
+};
+var GitHubArchiveDownloader = class _GitHubArchiveDownloader {
+  constructor(dependencies, limits = {}) {
+    this.dependencies = dependencies;
+    /**
+     * The archive answers both the listing and every file, so downloading it twice for one import would be
+     * the whole cost of the import paid twice. A failed load is dropped rather than kept, so a retry can try
+     * again rather than replaying the same rejection.
+     */
+    this.loaded = /* @__PURE__ */ new Map();
+    this.limits = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
+  }
+  static archiveUrl(location, ref) {
+    return `https://codeload.github.com/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/tar.gz/${ref.split("/").map((segment) => encodeURIComponent(segment)).join("/")}`;
+  }
+  /**
+   * The ref is the one question the archive host cannot answer for a bare repository URL. A ref spelled in
+   * the URL is honoured and nothing else: replacing a branch that has gone away with the default one would
+   * import different work than the person pointed at. With no ref to go on, the branch the repository page
+   * names is tried, then the two names nearly every repository has used, each settled by a HEAD that costs
+   * nothing on a wrong guess.
+   */
+  async resolveRef(location, options = {}) {
+    if (options.ref) {
+      if (await this.dependencies.probeArchive(_GitHubArchiveDownloader.archiveUrl(location, options.ref))) return options.ref;
+      throw new GitHubArchiveNotFoundError(location.owner, location.repo, [options.ref]);
+    }
+    const candidates = [];
+    for (const candidate of [options.defaultBranch, "main", "master"]) {
+      if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
+    }
+    for (const candidate of candidates) {
+      if (await this.dependencies.probeArchive(_GitHubArchiveDownloader.archiveUrl(location, candidate))) return candidate;
+    }
+    throw new GitHubArchiveNotFoundError(location.owner, location.repo, candidates);
+  }
+  load(location, defaultBranch) {
+    var _a, _b;
+    const key = `${location.owner}/${location.repo}/${(_b = (_a = location.ref) != null ? _a : defaultBranch) != null ? _b : ""}`;
+    const existing = this.loaded.get(key);
+    if (existing) return existing;
+    const pending = this.fetchArchive(location, defaultBranch).catch((error) => {
+      this.loaded.delete(key);
+      throw error;
+    });
+    this.loaded.set(key, pending);
+    return pending;
+  }
+  async fetchArchive(location, defaultBranch) {
+    const ref = await this.resolveRef(location, { ref: location.ref, defaultBranch });
+    const response = await this.dependencies.fetchArchive(_GitHubArchiveDownloader.archiveUrl(location, ref), this.limits.maxCompressedBytes);
+    if (response.status !== 200) {
+      throw new Error(`GitHub archive request failed with status ${response.status}`);
+    }
+    const compressed = Buffer.from(response.body);
+    if (compressed.byteLength > this.limits.maxCompressedBytes) {
+      throw new GitHubArchiveTooLargeError(compressed.byteLength, this.limits.maxCompressedBytes, "compressed");
+    }
+    const entries = stripArchiveRoot(parseTar(await gunzip(compressed), this.limits));
+    return { ref, source: new GitHubArchiveTreeSource(entries) };
+  }
+  async listSkillCandidates(location, defaultBranch) {
+    return (await this.importer(location, defaultBranch)).listSkillCandidates();
+  }
+  async downloadSkillCandidate(location, candidate, destination, defaultBranch) {
+    return (await this.importer(location, defaultBranch)).downloadCandidate(candidate, destination);
+  }
+  async importer(location, defaultBranch) {
+    if (!location.ref && defaultBranch === void 0) throw new InvalidGitHubUrlError(`${location.owner}/${location.repo}`);
+    const { source } = await this.load(location, defaultBranch);
+    return new SkillTreeImporter(source, location, this.limits);
+  }
+};
+function isZeroBlock(header) {
+  for (let index = 0; index < BLOCK; index += 1) if (header[index] !== 0) return false;
+  return true;
+}
+function readString(header, start, length) {
+  const end = header.indexOf(0, start);
+  const stop = end === -1 || end > start + length ? start + length : end;
+  return header.toString("utf8", start, stop).trim();
+}
+function readOctal(header, start, length) {
+  const digits = readString(header, start, length);
+  if (!digits) return 0;
+  const value = parseInt(digits, 8);
+  return Number.isFinite(value) ? value : 0;
+}
+function readPaxPath(payload) {
+  let path;
+  for (const record of payload.split("\n")) {
+    const separator = record.indexOf(" ");
+    if (separator <= 0) continue;
+    const length = Number(record.slice(0, separator));
+    if (!Number.isFinite(length) || length <= 0 || length !== record.length + 1) continue;
+    const [keyword, ...rest] = record.slice(separator + 1).split("=");
+    if (keyword === "path") path = rest.join("=");
+  }
+  return path;
+}
+function normalizeArchivePath(raw) {
+  const cleaned = raw.replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
+  if (!cleaned) return void 0;
+  const segments = cleaned.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return void 0;
+  return cleaned;
+}
+function formatBytes(bytes) {
+  const megabytes = bytes / (1024 * 1024);
+  if (megabytes >= 1024) return `${(megabytes / 1024).toFixed(1)} GB`;
+  if (megabytes >= 10) return `${Math.round(megabytes)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// src/importService.ts
+var import_promises6 = require("fs/promises");
+var import_path8 = require("path");
 function toError(error) {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -1026,23 +1333,23 @@ var SkillImportService = class {
     const eventsStart = this.registry.data.events.length;
     let operationError;
     try {
-      await (0, import_promises5.mkdir)(destinationRoot, { recursive: true });
+      await (0, import_promises6.mkdir)(destinationRoot, { recursive: true });
       for (const skill of discovered) {
         const folderName = await createCollisionSafeFolderName(skill.folderName, async (candidate) => {
           try {
-            await (0, import_promises5.access)((0, import_path7.join)(destinationRoot, candidate));
+            await (0, import_promises6.access)((0, import_path8.join)(destinationRoot, candidate));
             return true;
           } catch (e) {
             return false;
           }
         });
-        const vaultRelativePath = (0, import_path7.join)(this.settings.skillFolder, folderName);
+        const vaultRelativePath = (0, import_path8.join)(this.settings.skillFolder, folderName);
         const destination = await resolveVaultRelativePath(options.vaultPath, vaultRelativePath, { verifyFilesystem: true });
         const timestamp = (/* @__PURE__ */ new Date()).toISOString();
         const record = {
           id: `${folderName}-${Math.random().toString(36).slice(2, 10)}`,
           folderName,
-          vaultPath: (0, import_path7.relative)(options.vaultPath, destination).split(import_path7.sep).join("/"),
+          vaultPath: (0, import_path8.relative)(options.vaultPath, destination).split(import_path8.sep).join("/"),
           originalName: skill.metadata.name,
           nickname: skill.metadata.name,
           description: skill.metadata.description,
@@ -1056,7 +1363,7 @@ var SkillImportService = class {
           installCount: 0
         };
         copyAttempts.push({ destination, record });
-        await (0, import_promises5.cp)(skill.path, destination, { recursive: true, force: false, errorOnExist: true });
+        await (0, import_promises6.cp)(skill.path, destination, { recursive: true, force: false, errorOnExist: true });
         imported.push(record);
       }
       for (const record of imported) {
@@ -1069,7 +1376,7 @@ var SkillImportService = class {
       const cleanupFailures = [];
       for (const attempt of copyAttempts) {
         try {
-          await (0, import_promises5.rm)(attempt.destination, { force: true, recursive: true });
+          await (0, import_promises6.rm)(attempt.destination, { force: true, recursive: true });
         } catch (cleanupError) {
           cleanupFailures.push({ record: attempt.record, error: cleanupError });
         }
@@ -1105,7 +1412,7 @@ var SkillImportService = class {
     } finally {
       if (options.stagingPath) {
         try {
-          await (0, import_promises5.rm)(options.stagingPath, { force: true, recursive: true });
+          await (0, import_promises6.rm)(options.stagingPath, { force: true, recursive: true });
         } catch (cleanupError) {
           const cleanupCombinedError = operationError ? combineErrors(operationError, cleanupError, "staging cleanup failed") : combineErrors("Import completed", cleanupError, "staging cleanup failed");
           await Promise.reject(cleanupCombinedError);
@@ -1117,14 +1424,14 @@ var SkillImportService = class {
 
 // src/localImport.ts
 var import_child_process = require("child_process");
-var import_promises6 = require("fs/promises");
-var import_path8 = require("path");
+var import_promises7 = require("fs/promises");
+var import_path9 = require("path");
 var import_util = require("util");
 var WINDOWS_EXECUTABLE_PATTERN = /\.(exe|cmd|bat)$/i;
 var INTERPRETER_UNSAFE_PATTERN = /[&|<>^%!"\n\r]/;
 function executableSpawn(file, args, env) {
   if (process.platform === "win32" && file.trim().length > 0) {
-    return { file: (0, import_path8.basename)(file), args, options: { shell: true, env } };
+    return { file: (0, import_path9.basename)(file), args, options: { shell: true, env } };
   }
   return { file, args, options: { env } };
 }
@@ -1244,7 +1551,7 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   const args = normalizeNpxSkillsCommand(command);
   const npxExecutable = await resolveNpxExecutable(execFile);
   if (!npxExecutable) throw new Error("npx is not available.");
-  const stagingPath = await (0, import_promises6.mkdtemp)((0, import_path8.join)(cwd, ".skillhub-npx-import-"));
+  const stagingPath = await (0, import_promises7.mkdtemp)((0, import_path9.join)(cwd, ".skillhub-npx-import-"));
   try {
     const spawn = executableSpawn(npxExecutable.file, args, {
       ...process.env,
@@ -1256,7 +1563,7 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
     await execFile(spawn.file, spawn.args, { ...spawn.options, cwd: stagingPath });
   } catch (error) {
     try {
-      await (0, import_promises6.rm)(stagingPath, { force: true, recursive: true });
+      await (0, import_promises7.rm)(stagingPath, { force: true, recursive: true });
     } catch (cleanupError) {
       throw combineErrors(error, cleanupError, "staging cleanup failed");
     }
@@ -1265,10 +1572,10 @@ async function runNpxSkillsAdd(command, cwd, execFile = defaultExecFile) {
   return stagingPath;
 }
 function envWithExecutablePath(executable) {
-  const executableDir = (0, import_path8.dirname)(executable);
+  const executableDir = (0, import_path9.dirname)(executable);
   return {
     ...process.env,
-    PATH: [executableDir, process.env.PATH].filter(Boolean).join(import_path8.delimiter)
+    PATH: [executableDir, process.env.PATH].filter(Boolean).join(import_path9.delimiter)
   };
 }
 
@@ -3214,6 +3521,8 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     this.data = createEmptySkillHubData();
     this.registry = new SkillRegistry(this.data);
     this.repoMetadataCache = /* @__PURE__ */ new Map();
+    /** the moment the shared anonymous quota refills, after which imports stop asking it */
+    this.quotaBlockedUntil = 0;
   }
   async onload() {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -3264,50 +3573,119 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     (await this.openSkillHub()).installSelectedSkills();
   }
   async importFromGitHub(url) {
+    let plan;
     try {
-      const requestBudget = new GitHubRequestBudget();
-      const location = await resolveGitHubSkillUrl(
-        url,
-        (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
-        { requestBudget, repoInfo: await this.githubRepoInfo(url) }
-      );
-      const downloader = new GitHubSkillDownloader({
-        fetchJson: async (path) => {
-          const response = await (0, import_obsidian4.requestUrl)({ url: `https://api.github.com${path}`, throw: false });
-          return {
-            status: response.status,
-            // a rejected request answers with an object rather than the listing, and only the status and
-            // the quota tell anything useful once that happens
-            data: Array.isArray(response.json) ? response.json : [],
-            rateLimit: githubRateLimitFromResponse(response.headers, response.json)
-          };
-        },
-        downloadFile: async (downloadUrl, destination, maxBytes) => {
-          const response = await (0, import_obsidian4.requestUrl)({ url: downloadUrl, throw: false });
-          return writeBoundedGitHubResponse(response, destination, maxBytes);
-        }
-      }, {}, requestBudget);
-      const candidates = await downloader.listSkillCandidates(location);
-      new SkillSelectionModal(this.app, candidates.map((candidate) => ({
-        id: `${candidate.kind}:${candidate.name}`,
-        label: candidate.label,
-        value: candidate
-      })), async (selected) => {
-        let stagingPath;
-        try {
-          if (selected.length === 0) return;
-          stagingPath = await (0, import_promises7.mkdtemp)((0, import_path9.join)(this.getVaultBasePath(), ".skillhub-github-import-"));
-          for (const candidate of selected) await downloader.downloadSkillCandidate(location, candidate, stagingPath);
-          const discovered = await discoverSkills(stagingPath);
-          this.showDiscoveryWarnings(discovered.warnings);
-          await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
-        } catch (error) {
-          this.showError(await this.cleanupStagingAfterError(error, stagingPath));
-        }
-      }).open();
+      plan = await this.createGitHubPlan(url);
     } catch (error) {
       this.showError(error);
+      return;
     }
+    new SkillSelectionModal(this.app, plan.candidates.map((candidate) => ({
+      id: `${candidate.kind}:${candidate.name}`,
+      label: candidate.label,
+      value: candidate
+    })), async (selected) => {
+      let stagingPath;
+      try {
+        if (selected.length === 0) return;
+        stagingPath = await (0, import_promises8.mkdtemp)((0, import_path10.join)(this.getVaultBasePath(), ".skillhub-github-import-"));
+        for (const candidate of selected) await plan.download(candidate, stagingPath);
+        const discovered = await discoverSkills(stagingPath);
+        this.showDiscoveryWarnings(discovered.warnings);
+        await this.openImportSelection(discovered.skills, { type: "github", url }, "github", stagingPath);
+      } catch (error) {
+        this.showError(await this.cleanupStagingAfterError(error, stagingPath));
+      }
+    }).open();
+  }
+  /**
+   * One import, two ways to reach the repository. The api goes first because it is small: a handful of
+   * listings plus the raw bytes of whatever is chosen. It is also the first thing an office network runs
+   * out of, because sixty anonymous requests an hour are shared by everyone behind the one address, so a
+   * refusal on quota quietly switches to the archive host, which carries the whole repository in a single
+   * request and keeps no count of them. Anything else is left to speak for itself: a missing skills folder
+   * is not a quota problem and must not be answered with a download.
+   */
+  async createGitHubPlan(url) {
+    if (Date.now() < this.quotaBlockedUntil) return this.createArchivePlan(url);
+    return retryWhenRateLimited(
+      () => this.createApiPlan(url),
+      () => this.createArchivePlan(url),
+      (resetEpochSeconds) => {
+        if (resetEpochSeconds !== void 0) this.quotaBlockedUntil = resetEpochSeconds * 1e3;
+      }
+    );
+  }
+  async createApiPlan(url) {
+    const requestBudget = new GitHubRequestBudget();
+    const location = await resolveGitHubSkillUrl(
+      url,
+      (owner, repo, ref) => this.githubRefExists(owner, repo, ref, requestBudget),
+      { requestBudget, repoInfo: await this.githubRepoInfo(url) }
+    );
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async (path) => {
+        const response = await (0, import_obsidian4.requestUrl)({ url: `https://api.github.com${path}`, throw: false });
+        return {
+          status: response.status,
+          // a rejected request answers with an object rather than the listing, and only the status and
+          // the quota tell anything useful once that happens
+          data: Array.isArray(response.json) ? response.json : [],
+          rateLimit: githubRateLimitFromResponse(response.headers, response.json)
+        };
+      },
+      downloadFile: async (downloadUrl, destination, maxBytes) => {
+        const response = await (0, import_obsidian4.requestUrl)({ url: downloadUrl, throw: false });
+        return writeBoundedGitHubResponse(response, destination, maxBytes);
+      }
+    }, {}, requestBudget);
+    const candidates = await downloader.listSkillCandidates(location);
+    return { candidates, download: (candidate, stagingPath) => downloader.downloadSkillCandidate(location, candidate, stagingPath) };
+  }
+  async createArchivePlan(url) {
+    var _a;
+    const location = parseGitHubSkillUrl(url);
+    const downloader = new GitHubArchiveDownloader({
+      fetchArchive: async (archiveUrl, maxBytes) => {
+        const response = await (0, import_obsidian4.requestUrl)({ url: archiveUrl, throw: false });
+        const bytes = response.arrayBuffer.byteLength;
+        if (bytes > maxBytes) throw new GitHubArchiveTooLargeError(bytes, maxBytes, "compressed");
+        return { status: response.status, body: response.arrayBuffer };
+      },
+      // a HEAD settles whether a ref has an archive without paying for a wrong guess
+      probeArchive: async (archiveUrl) => (await (0, import_obsidian4.requestUrl)({ url: archiveUrl, method: "HEAD", throw: false })).status === 200
+    });
+    const knownBranch = (_a = this.repoMetadataCache.get(`${location.owner}/${location.repo}`)) == null ? void 0 : _a.defaultBranch;
+    const plan = (candidates) => ({
+      candidates,
+      download: (candidate, stagingPath) => downloader.downloadSkillCandidate(location, candidate, stagingPath)
+    });
+    try {
+      return plan(await downloader.listSkillCandidates(location, knownBranch));
+    } catch (error) {
+      if (!(error instanceof GitHubArchiveNotFoundError)) throw error;
+      const branch = await this.githubDefaultBranchFromPage(location);
+      if (!branch) throw error;
+      return plan(await downloader.listSkillCandidates(location, branch));
+    }
+  }
+  /**
+   * The repository page carries the default branch in its own description of itself, which is how the
+   * archive route answers the one question codeload cannot. Only reached when the cheaper probes miss.
+   */
+  async githubDefaultBranchFromPage(location) {
+    var _a, _b;
+    const key = `${location.owner}/${location.repo}`;
+    if (this.repoMetadataCache.has(key)) return (_a = this.repoMetadataCache.get(key)) == null ? void 0 : _a.defaultBranch;
+    let info;
+    try {
+      const response = await (0, import_obsidian4.requestUrl)({ url: `https://github.com/${location.owner}/${location.repo}`, throw: false });
+      const match = response.status === 200 ? /"defaultBranch":"([^"]{1,200})"/.exec((_b = response.text) != null ? _b : "") : null;
+      if (match) info = { defaultBranch: match[1] };
+    } catch (e) {
+    }
+    this.repoMetadataCache.set(key, info);
+    return info == null ? void 0 : info.defaultBranch;
   }
   async importFromLocalDirectory(path) {
     await this.importFromDirectory(path, { type: "local", path }, "local");
@@ -3435,7 +3813,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     }, () => this.cleanupStagingPath(stagingPath)).open();
   }
   async cleanupStagingPath(stagingPath) {
-    if (stagingPath) await (0, import_promises7.rm)(stagingPath, { force: true, recursive: true });
+    if (stagingPath) await (0, import_promises8.rm)(stagingPath, { force: true, recursive: true });
   }
   async cleanupStagingAfterError(error, stagingPath) {
     try {
@@ -3791,7 +4169,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
   async describeCliTarget(target, vaultPath) {
     const insideVault = vaultPath === "unavailable" ? false : this.isInsideDirectory(vaultPath, target);
     try {
-      const stats = await (0, import_promises7.lstat)(target);
+      const stats = await (0, import_promises8.lstat)(target);
       if (stats.isDirectory()) return { kind: "directory", insideVault };
       if (stats.isFile()) return { kind: "file", insideVault };
       return { kind: "other", insideVault };
@@ -3801,8 +4179,8 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     }
   }
   isInsideDirectory(parent, child) {
-    const relation = (0, import_path9.relative)(parent, child);
-    return relation.length > 0 && !relation.startsWith("..") && !(0, import_path9.isAbsolute)(relation);
+    const relation = (0, import_path10.relative)(parent, child);
+    return relation.length > 0 && !relation.startsWith("..") && !(0, import_path10.isAbsolute)(relation);
   }
   cliRecords() {
     return Object.values(this.registry.data.skills).sort((left, right) => left.nickname.localeCompare(right.nickname));
@@ -3954,8 +4332,8 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
       candidates,
       async (destination) => await inspectDestination(destination),
       async (candidate) => {
-        if (candidate.method === "copy") await (0, import_promises7.rm)(candidate.destination, { recursive: true, force: true });
-        else await (0, import_promises7.unlink)(candidate.destination);
+        if (candidate.method === "copy") await (0, import_promises8.rm)(candidate.destination, { recursive: true, force: true });
+        else await (0, import_promises8.unlink)(candidate.destination);
       },
       !args.dryrun
     );
@@ -3981,8 +4359,8 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     };
   }
   cliInstallDestination(target, record, action) {
-    const root = (0, import_path9.resolve)(target);
-    const destination = (0, import_path9.resolve)((0, import_path9.join)(root, ".agents", "skills", record.folderName));
+    const root = (0, import_path10.resolve)(target);
+    const destination = (0, import_path10.resolve)((0, import_path10.join)(root, ".agents", "skills", record.folderName));
     if (!this.isInsideDirectory(root, destination)) {
       throw new CliError(`Refusing ${action}: ${destination} does not sit inside the requested target.`);
     }
@@ -3990,13 +4368,13 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
   }
   cliInstallRecordsForTarget(target) {
     var _a;
-    const wanted = (0, import_path9.resolve)(target);
+    const wanted = (0, import_path10.resolve)(target);
     const skills = this.registry.data.skills;
     const found = [];
     for (const event of this.registry.data.events) {
       if (event.type !== "skill_installed") continue;
       const recorded = typeof event.details.targetDir === "string" ? event.details.targetDir : "";
-      if (recorded.length === 0 || (0, import_path9.resolve)(recorded) !== wanted) continue;
+      if (recorded.length === 0 || (0, import_path10.resolve)(recorded) !== wanted) continue;
       const record = skills[(_a = event.skillId) != null ? _a : ""];
       if (!record) continue;
       if (!found.some((entry) => entry.record.id === record.id)) {
@@ -4096,9 +4474,9 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
   async assertCliInstallTarget(target, vaultPath) {
     const violation = installTargetViolation(target, vaultPath, (0, import_os.homedir)());
     if (violation) throw new CliError(violation);
-    const resolved = (0, import_path9.resolve)(target);
+    const resolved = (0, import_path10.resolve)(target);
     try {
-      const stats = await (0, import_promises7.lstat)(resolved);
+      const stats = await (0, import_promises8.lstat)(resolved);
       if (!stats.isDirectory()) throw new CliError(`Install target ${target} is a file, not a directory.`);
     } catch (error) {
       if (error instanceof CliError) throw error;
@@ -4214,7 +4592,7 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
           throw: false
         });
         if (response.status === 200) return true;
-        if (response.status !== 404) throw new Error(`GitHub ref request failed with status ${response.status}`);
+        if (response.status !== 404) throw githubRequestFailure("ref", response.status, githubRateLimitFromResponse(response.headers, response.json));
       } catch (error) {
         if (!String(error).includes("404")) throw error;
       }
@@ -4238,12 +4616,18 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
     const key = `${owner}/${repo}`;
     if (this.repoMetadataCache.has(key)) return this.repoMetadataCache.get(key);
     let info;
+    let quotaFailure;
     try {
       const response = await (0, import_obsidian4.requestUrl)({ url: `https://api.github.com/repos/${owner}/${repo}`, throw: false });
+      if (response.status !== 200) {
+        const failure = githubRequestFailure("metadata", response.status, githubRateLimitFromResponse(response.headers, response.json));
+        if (failure instanceof GitHubRateLimitedError) quotaFailure = failure;
+      }
       const defaultBranch = response.status === 200 ? (_a = response.json) == null ? void 0 : _a.default_branch : void 0;
       if (typeof defaultBranch === "string" && defaultBranch.length > 0) info = { defaultBranch };
     } catch (e) {
     }
+    if (quotaFailure) throw quotaFailure;
     this.repoMetadataCache.set(key, info);
     return info;
   }
