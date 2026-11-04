@@ -1,10 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { fileURLToPath } from "url";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { discoverSkills, formatMissingSkillsFolderMessage, parseSkillMarkdown } from "../src/skillDiscovery";
 
-const fixturesRoot = new URL("./fixtures/", import.meta.url).pathname;
+// URL.pathname keeps a leading slash on windows, which no windows path accepts, so these fixture
+// reads could never work on the platform this desktop only plugin runs on
+const fixturesRoot = fileURLToPath(new URL("./fixtures/", import.meta.url));
 
 describe("discoverSkills", () => {
   it("discovers a valid skill below a skills folder", async () => {
@@ -134,7 +137,9 @@ describe("discoverSkills", () => {
   it("returns a warning when SKILL.md exists but cannot be read", async () => {
     const result = await discoverSkills(`${fixturesRoot}skills`, {
       readFile: async (path) => {
-        if (String(path).endsWith("good-skill/SKILL.md")) {
+        // matched on either separator: join produces the host one, and a hardcoded slash never matches
+        // the windows paths this desktop only plugin actually runs on
+        if (/good-skill[\\/]SKILL\.md$/.test(String(path))) {
           throw Object.assign(new Error("permission denied"), { code: "EACCES" });
         }
         return "---\nname: Other\ndescription: Other\n---\n";
@@ -142,7 +147,7 @@ describe("discoverSkills", () => {
     });
 
     expect(result.skills.some((skill) => skill.folderName === "good-skill")).toBe(false);
-    expect(result.warnings).toEqual([{ path: expect.stringContaining("good-skill/SKILL.md"), message: "permission denied" }]);
+    expect(result.warnings).toEqual([{ path: expect.stringMatching(/good-skill[\\/]SKILL\.md$/), message: "permission denied" }]);
   });
 
   it("reports a missing skills folder", async () => {
