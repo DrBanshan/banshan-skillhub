@@ -19,7 +19,7 @@ The plugin can also be driven from a shell, without opening a window. Switching 
 
 Skill Hub can import skills from three sources:
 
-- **GitHub import:** Enter a GitHub URL that points to a directory containing a `skills/` folder. Skill Hub lists the skills it finds there and lets you choose which ones to import. It does not fall back to downloading a full repository ZIP.
+- **GitHub import:** Enter a GitHub URL that points to a directory containing a `skills/` folder. Skill Hub lists the skills it finds there and lets you choose which ones to import. Skills grouped one level deeper, at `skills/<category>/<skill>/SKILL.md`, are listed on their own rather than as their category. Listings normally come from the GitHub api, which allows sixty anonymous requests an hour to every machine behind one address; when that allowance is spent, the import reads the repository archive from `codeload.github.com` instead, one request that the api quota does not cover. An archive over 256 MB unpacked is refused with a message pointing at the `npx` route.
 - **Local scan:** Choose a local folder and scan for either `skills/` or `.agents/skills/`. If neither exists, Skill Hub shows a notice instead of guessing.
 - **npx import:** Paste a command such as:
 
@@ -154,7 +154,7 @@ Skill Hub settings include:
 ## Notes And Limitations
 
 - Skill Hub is desktop-only because it uses local filesystem access and native folder picking.
-- GitHub import expects a `skills/` folder at the directory pointed to by the URL.
+- GitHub import expects a `skills/` folder at the directory pointed to by the URL, or a `SKILL.md` at that directory itself. A folder below the skills root that has no `SKILL.md` of its own is read as a grouping, and its children are the skills.
 - Local scan expects either `skills/` or `.agents/skills/` under the chosen directory.
 - Empty folders may not be selectable through the native folder picker because the browser-style directory input needs at least one file to expose a path.
 - The target workspace must allow Skill Hub to create `.agents/skills` and copy or link skill files.
