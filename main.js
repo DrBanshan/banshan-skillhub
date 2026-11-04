@@ -746,7 +746,7 @@ var GitHubImportLimitError = class extends Error {
 async function writeBoundedGitHubResponse(response, destination, maxBytes, write = (path, data) => (0, import_promises4.writeFile)(path, data)) {
   var _a;
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`GitHub download request failed with status ${response.status}`);
+    throw githubRequestFailure("file", response.status);
   }
   const contentLengthHeader = (_a = Object.entries(response.headers).find(([name]) => name.toLowerCase() === "content-length")) == null ? void 0 : _a[1];
   const contentLength = contentLengthHeader === void 0 ? void 0 : Number(contentLengthHeader);
@@ -931,7 +931,7 @@ var GitHubSkillDownloader = class {
     const contentsPath = path ? `/contents/${path}` : "/contents";
     const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}${contentsPath}${query}`);
     if (response.status === 404) throw new MissingSkillsFolderError(path);
-    if (response.status !== 200) throw new Error(`GitHub contents request failed with status ${response.status}`);
+    if (response.status !== 200) throw githubRequestFailure("contents", response.status, response.rateLimit);
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
     return response.data;
   }
@@ -939,6 +939,41 @@ var GitHubSkillDownloader = class {
     this.requestBudget.consume(path);
   }
 };
+function githubRequestFailure(context, status, rateLimit, now = Date.now()) {
+  var _a, _b;
+  const base = `GitHub ${context} request failed with status ${status}`;
+  const quotaExhausted = (status === 403 || status === 429) && rateLimit !== void 0 && (rateLimit.remaining === 0 || /rate limit/i.test((_a = rateLimit.message) != null ? _a : ""));
+  if (quotaExhausted && rateLimit) {
+    return new Error(`${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`);
+  }
+  const message = (_b = rateLimit == null ? void 0 : rateLimit.message) == null ? void 0 : _b.trim();
+  return new Error(message ? `${base}: ${message}` : base);
+}
+function githubRateLimitFromResponse(headers, body) {
+  const read = (name) => {
+    var _a;
+    return (_a = Object.entries(headers != null ? headers : {}).find(([key]) => key.toLowerCase() === name)) == null ? void 0 : _a[1];
+  };
+  const count = (name) => {
+    const raw = read(name);
+    if (raw === void 0) return void 0;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : void 0;
+  };
+  const message = typeof (body == null ? void 0 : body.message) === "string" ? body.message : void 0;
+  const remaining = count("x-ratelimit-remaining");
+  const limit = count("x-ratelimit-limit");
+  const resetEpochSeconds = count("x-ratelimit-reset");
+  if (remaining === void 0 && limit === void 0 && resetEpochSeconds === void 0 && message === void 0) return void 0;
+  return { remaining, limit, resetEpochSeconds, message };
+}
+function resetPhrase(rateLimit, now) {
+  if (rateLimit.resetEpochSeconds === void 0) return "";
+  const seconds = rateLimit.resetEpochSeconds - Math.floor(now / 1e3);
+  if (seconds <= 0) return ", and its window is turning over now";
+  const minutes = Math.ceil(seconds / 60);
+  return `, and it refills in about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
 function resolveRootPath(location) {
   if (location.rootPath !== void 0) return location.rootPath;
   return location.skillsPath === "skills" ? "" : location.skillsPath.replace(/\/skills$/, "");
@@ -3239,7 +3274,13 @@ var SkillHubPlugin = class extends import_obsidian4.Plugin {
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
           const response = await (0, import_obsidian4.requestUrl)({ url: `https://api.github.com${path}`, throw: false });
-          return { status: response.status, data: response.json };
+          return {
+            status: response.status,
+            // a rejected request answers with an object rather than the listing, and only the status and
+            // the quota tell anything useful once that happens
+            data: Array.isArray(response.json) ? response.json : [],
+            rateLimit: githubRateLimitFromResponse(response.headers, response.json)
+          };
         },
         downloadFile: async (downloadUrl, destination, maxBytes) => {
           const response = await (0, import_obsidian4.requestUrl)({ url: downloadUrl, throw: false });

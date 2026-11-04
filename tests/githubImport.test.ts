@@ -8,6 +8,8 @@ import {
   GitHubSkillDownloader,
   InvalidGitHubUrlError,
   MissingSkillsFolderError,
+  githubRateLimitFromResponse,
+  githubRequestFailure,
   parseGitHubSkillUrl,
   resolveGitHubSkillUrl,
   writeBoundedGitHubResponse
@@ -695,6 +697,70 @@ describe("GitHubSkillDownloader", () => {
       "writer",
       destination
     )).rejects.toThrow(GitHubImportLimitError);
+  });
+});
+
+describe("GitHub rate limit reporting", () => {
+  const now = Date.parse("2026-04-01T00:00:00.000Z");
+  const reset = Math.floor(now / 1000) + 600;
+
+  it("lifts the quota from headers and the explanation from the body", () => {
+    expect(
+      githubRateLimitFromResponse(
+        { "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": "60", "X-RateLimit-Reset": String(reset) },
+        { message: "API rate limit exceeded for 203.0.113.9." }
+      )
+    ).toEqual({ remaining: 0, limit: 60, resetEpochSeconds: reset, message: "API rate limit exceeded for 203.0.113.9." });
+  });
+
+  it("says nothing when the response carries neither headers nor a message", () => {
+    expect(githubRateLimitFromResponse({}, [])).toBeUndefined();
+    expect(githubRateLimitFromResponse(undefined, undefined)).toBeUndefined();
+  });
+
+  it("names the quota and its window rather than leaving a bare status", () => {
+    const message = githubRequestFailure("contents", 403, { remaining: 0, resetEpochSeconds: reset }, now).message;
+
+    expect(message).toContain("GitHub contents request failed with status 403");
+    expect(message).toContain("this network has used up the GitHub quota it shares");
+    expect(message).toContain("about 10 minutes");
+  });
+
+  it("treats the wording of the response alone as evidence of the limit", () => {
+    expect(githubRequestFailure("contents", 403, { message: "API rate limit exceeded for 203.0.113.9" }, now).message).toContain(
+      "used up the GitHub quota"
+    );
+  });
+
+  it("keeps another reason in its own words", () => {
+    expect(githubRequestFailure("contents", 403, { remaining: 30, message: "Resource not accessible by personal access token" }, now).message).toBe(
+      "GitHub contents request failed with status 403: Resource not accessible by personal access token"
+    );
+  });
+
+  it("keeps a plain status for a file that simply is not there", () => {
+    expect(githubRequestFailure("file", 404).message).toBe("GitHub file request failed with status 404");
+  });
+
+  it("says the window is turning over when the reset has already gone by", () => {
+    expect(githubRequestFailure("contents", 429, { remaining: 0, resetEpochSeconds: Math.floor(now / 1000) - 5 }, now).message).toContain(
+      "turning over now"
+    );
+  });
+
+  it("carries the quota through a rejected listing", async () => {
+    const downloader = new GitHubSkillDownloader({
+      fetchJson: async () => ({
+        status: 403,
+        data: [],
+        rateLimit: { remaining: 0, resetEpochSeconds: reset, message: "API rate limit exceeded for 203.0.113.9." }
+      }),
+      downloadFile: async () => 0
+    }, {}, new GitHubRequestBudget());
+
+    await expect(downloader.listSkillFolders({ owner: "owner", repo: "repo", ref: "main", rootPath: "", skillsPath: "skills" })).rejects.toThrow(
+      /used up the GitHub quota it shares/
+    );
   });
 });
 

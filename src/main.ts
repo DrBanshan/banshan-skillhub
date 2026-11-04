@@ -7,7 +7,7 @@ import { combineErrors } from "./errors";
 import { inspectDestination, SkillExportService, type InstallLinkMechanism, type InstallOptions, type InstallSummary, type SymlinkConflictBehavior } from "./exportService";
 import { createSkillEvent } from "./events";
 import { pickNativeFolder } from "./folderPicker";
-import { GitHubRequestBudget, GitHubSkillDownloader, parseGitHubSkillUrl, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo } from "./githubImport";
+import { GitHubRequestBudget, GitHubSkillDownloader, githubRateLimitFromResponse, parseGitHubSkillUrl, resolveGitHubSkillUrl, writeBoundedGitHubResponse, type GitHubContentEntry, type GitHubRepoInfo } from "./githubImport";
 import { SkillImportService, type ImportResult } from "./importService";
 import { isNpxAvailable, runNpxSkillsAdd, validateNpxSkillsCommand } from "./localImport";
 import { collectTagColors, createEmptySkillHubData, SkillRegistry } from "./registry";
@@ -103,7 +103,13 @@ export default class SkillHubPlugin extends Plugin {
       const downloader = new GitHubSkillDownloader({
         fetchJson: async (path) => {
           const response = await requestUrl({ url: `https://api.github.com${path}`, throw: false });
-          return { status: response.status, data: response.json as GitHubContentEntry[] };
+          return {
+            status: response.status,
+            // a rejected request answers with an object rather than the listing, and only the status and
+            // the quota tell anything useful once that happens
+            data: Array.isArray(response.json) ? (response.json as GitHubContentEntry[]) : [],
+            rateLimit: githubRateLimitFromResponse(response.headers, response.json)
+          };
         },
         downloadFile: async (downloadUrl, destination, maxBytes) => {
           const response = await requestUrl({ url: downloadUrl, throw: false });

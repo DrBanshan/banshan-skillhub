@@ -52,10 +52,18 @@ export interface GitHubContentEntry {
   size?: number;
 }
 
+export interface GitHubRateLimitInfo {
+  remaining?: number;
+  limit?: number;
+  resetEpochSeconds?: number;
+  message?: string;
+}
+
 export interface GitHubApiResponse {
   status: number;
   data: GitHubContentEntry[];
   truncated?: boolean;
+  rateLimit?: GitHubRateLimitInfo;
 }
 
 export interface GitHubSkillDownloaderDependencies {
@@ -106,7 +114,7 @@ export async function writeBoundedGitHubResponse(
   write: (path: string, data: Buffer) => Promise<void> = (path, data) => writeFile(path, data)
 ): Promise<number> {
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`GitHub download request failed with status ${response.status}`);
+    throw githubRequestFailure("file", response.status);
   }
 
   const contentLengthHeader = Object.entries(response.headers).find(([name]) => name.toLowerCase() === "content-length")?.[1];
@@ -348,7 +356,7 @@ export class GitHubSkillDownloader {
     const contentsPath = path ? `/contents/${path}` : "/contents";
     const response = await this.dependencies.fetchJson(`/repos/${location.owner}/${location.repo}${contentsPath}${query}`);
     if (response.status === 404) throw new MissingSkillsFolderError(path);
-    if (response.status !== 200) throw new Error(`GitHub contents request failed with status ${response.status}`);
+    if (response.status !== 200) throw githubRequestFailure("contents", response.status, response.rateLimit);
     if (response.truncated || response.data.length >= GITHUB_CONTENTS_LISTING_LIMIT) throw new GitHubImportLimitError(path);
     return response.data;
   }
@@ -356,6 +364,50 @@ export class GitHubSkillDownloader {
   private consumeRequest(path: string): void {
     this.requestBudget.consume(path);
   }
+}
+
+// A shared egress address runs through one unauthenticated quota between everyone behind it, so the
+// usual failure is 403 rather than anything about the URL. The status alone sent people hunting for a
+// broken link, so the quota and its window are named when the response says so.
+export function githubRequestFailure(context: string, status: number, rateLimit?: GitHubRateLimitInfo, now = Date.now()): Error {
+  const base = `GitHub ${context} request failed with status ${status}`;
+  const quotaExhausted =
+    (status === 403 || status === 429) &&
+    rateLimit !== undefined &&
+    (rateLimit.remaining === 0 || /rate limit/i.test(rateLimit.message ?? ""));
+  if (quotaExhausted && rateLimit) {
+    return new Error(`${base}: this network has used up the GitHub quota it shares${resetPhrase(rateLimit, now)}.`);
+  }
+  const message = rateLimit?.message?.trim();
+  return new Error(message ? `${base}: ${message}` : base);
+}
+
+// The quota lives in headers and the explanation lives in the body, and neither survives a bare status
+// code, so both are lifted here while the response is still in hand. Header names are matched without
+// regard to case because the proxy chain in between has been known to change them.
+export function githubRateLimitFromResponse(headers: Record<string, string> | undefined, body: unknown): GitHubRateLimitInfo | undefined {
+  const read = (name: string): string | undefined =>
+    Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name)?.[1];
+  const count = (name: string): number | undefined => {
+    const raw = read(name);
+    if (raw === undefined) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const message = typeof (body as { message?: unknown } | null)?.message === "string" ? (body as { message: string }).message : undefined;
+  const remaining = count("x-ratelimit-remaining");
+  const limit = count("x-ratelimit-limit");
+  const resetEpochSeconds = count("x-ratelimit-reset");
+  if (remaining === undefined && limit === undefined && resetEpochSeconds === undefined && message === undefined) return undefined;
+  return { remaining, limit, resetEpochSeconds, message };
+}
+
+function resetPhrase(rateLimit: GitHubRateLimitInfo, now: number): string {
+  if (rateLimit.resetEpochSeconds === undefined) return "";
+  const seconds = rateLimit.resetEpochSeconds - Math.floor(now / 1000);
+  if (seconds <= 0) return ", and its window is turning over now";
+  const minutes = Math.ceil(seconds / 60);
+  return `, and it refills in about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 function resolveRootPath(location: GitHubSkillLocation): string {
