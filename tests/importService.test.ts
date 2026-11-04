@@ -3,13 +3,16 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillImportService } from "../src/importService";
-import { isNpxAvailable, normalizeNpxSkillsCommand, runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
+import { isNpxAvailable, normalizeNpxSkillsCommand, resolveNpxExecutable, runNpxSkillsAdd, validateNpxSkillsCommand } from "../src/localImport";
 import { createEmptySkillHubData, SkillRegistry } from "../src/registry";
 import { DEFAULT_SETTINGS } from "../src/settingsDefaults";
 import { discoverSkills } from "../src/skillDiscovery";
 
 const temporaryDirectories: string[] = [];
 const cleanupFailure = vi.hoisted(() => ({ pathIncludes: "", remaining: 0 }));
+const onWindows = process.platform === "win32";
+const posixOnly = onWindows ? it.skip : it;
+const windowsOnly = onWindows ? it : it.skip;
 
 vi.mock("fs/promises", async () => {
   const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
@@ -233,7 +236,7 @@ describe("validateNpxSkillsCommand", () => {
 });
 
 describe("runNpxSkillsAdd", () => {
-  it("finds npx through the user shell and verifies it with its bin directory on PATH", async () => {
+  posixOnly("finds npx through the user shell and verifies it with its bin directory on PATH", async () => {
     const calls: Array<{ file: string; args: string[]; path?: string }> = [];
     const npxPath = "/Users/me/.nvm/versions/node/v22/bin/npx";
     const npxBin = "/Users/me/.nvm/versions/node/v22/bin";
@@ -252,7 +255,7 @@ describe("runNpxSkillsAdd", () => {
     ]);
   });
 
-  it("falls back to an interactive shell lookup for desktop-launched Obsidian environments", async () => {
+  posixOnly("falls back to an interactive shell lookup for desktop-launched Obsidian environments", async () => {
     const shell = process.env.SHELL ?? "/bin/sh";
     const calls: Array<{ file: string; args: string[] }> = [];
 
@@ -271,7 +274,7 @@ describe("runNpxSkillsAdd", () => {
     ]);
   });
 
-  it("runs npx imports through the shell-resolved executable when direct lookup is unavailable", async () => {
+  posixOnly("runs npx imports through the shell-resolved executable when direct lookup is unavailable", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
     const calls: Array<{ file: string; args: string[]; cwd?: string; path?: string }> = [];
@@ -292,6 +295,64 @@ describe("runNpxSkillsAdd", () => {
     expect(calls.at(-1)?.path?.startsWith(npxBin)).toBe(true);
   });
 
+  windowsOnly("prefers the executable sibling when where reports the bash shim first", async () => {
+    const spec = process.env.ComSpec ?? "cmd.exe";
+    const shim = "C:\\Program Files\\nodejs\\npx";
+    const program = "C:\\Program Files\\nodejs\\npx.cmd";
+    const calls: Array<{ file: string; args: string[]; path?: string }> = [];
+
+    const resolved = await resolveNpxExecutable(async (file, args, options) => {
+      calls.push({ file, args, path: options.env?.PATH });
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (args.join(" ") === "/d /s /c where npx") return { stdout: `${shim}\r\n${program}\r\n` };
+      if (args.join(" ") === `/d /s /c "${program} --version"`) return { stdout: "11.9.0\n" };
+      throw Object.assign(new Error(`unexpected spawn ${file} ${args.join(" ")}`), { code: "ENOENT" });
+    });
+
+    expect(resolved?.file).toBe(program);
+    expect(calls).toEqual([
+      { file: "npx", args: ["--version"], path: undefined },
+      { file: spec, args: ["/d", "/s", "/c", "where npx"], path: undefined },
+      { file: spec, args: ["/d", "/s", "/c", `"${program} --version"`], path: `${"C:\\Program Files\\nodejs"};${process.env.PATH ?? ""}` }
+    ]);
+  });
+
+  windowsOnly("routes an extensionless lookup result through the interpreter so cmd can apply its own rules", async () => {
+    const spec = process.env.ComSpec ?? "cmd.exe";
+    const shim = "C:\\Program Files\\nodejs\\npx";
+    const probes: string[] = [];
+
+    const resolved = await resolveNpxExecutable(async (file, args) => {
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (args.join(" ") === "/d /s /c where npx") return { stdout: `${shim}\r\n` };
+      probes.push(args.join(" "));
+      return { stdout: "11.9.0\n" };
+    });
+
+    expect(resolved?.file).toBe(shim);
+    expect(probes).toEqual([`/d /s /c "${shim} --version"`]);
+  });
+
+  windowsOnly("runs the import through the interpreter with the resolved bin directory on PATH", async () => {
+    const spec = process.env.ComSpec ?? "cmd.exe";
+    const program = "C:\\Program Files\\nodejs\\npx.cmd";
+    const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
+    temporaryDirectories.push(cwd);
+    const calls: Array<{ file: string; args: string[]; cwd?: string; path?: string }> = [];
+
+    await runNpxSkillsAdd("npx skills add owner/repo", cwd, async (file, args, options) => {
+      calls.push({ file, args, cwd: options.cwd, path: options.env?.PATH });
+      if (file === "npx") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+      if (args.join(" ") === "/d /s /c where npx") return { stdout: `C:\\Program Files\\nodejs\\npx\r\n${program}\r\n` };
+      return { stdout: "11.9.0\n" };
+    });
+
+    expect(calls.at(-1)?.file).toBe(spec);
+    expect(calls.at(-1)?.args).toEqual(["/d", "/s", "/c", `"${program} --yes skills add owner/repo --agent codex --skill * --yes --copy"`]);
+    expect(calls.at(-1)?.cwd?.startsWith(cwd)).toBe(true);
+    expect(calls.at(-1)?.path?.startsWith("C:\\Program Files\\nodejs;")).toBe(true);
+  });
+
   it("runs a validated command inside a staging directory below cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "skillhub-npx-root-"));
     temporaryDirectories.push(cwd);
@@ -304,9 +365,12 @@ describe("runNpxSkillsAdd", () => {
     expect(stagingPath.startsWith(cwd)).toBe(true);
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({ file: "npx", args: ["--version"] });
+    // windows wraps the winning command in the interpreter, posix runs it as resolved
+    const expected = onWindows
+      ? { file: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", "\"npx --yes skills add owner/repo --agent codex --skill * --yes --copy\""] }
+      : { file: "npx", args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"] };
     expect(calls[1]).toMatchObject({
-      file: "npx",
-      args: ["--yes", "skills", "add", "owner/repo", "--agent", "codex", "--skill", "*", "--yes", "--copy"],
+      ...expected,
       cwd: stagingPath,
       env: { DO_NOT_TRACK: "1", DISABLE_TELEMETRY: "1", CI: "1", PATH: process.env.PATH }
     });

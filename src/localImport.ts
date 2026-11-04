@@ -16,6 +16,25 @@ interface ResolvedExecutable {
   env?: NodeJS.ProcessEnv;
 }
 
+const WINDOWS_EXECUTABLE_PATTERN = /\.(exe|cmd|bat)$/i;
+
+/**
+ * Builds the spawn for an already resolved command.
+ *
+ * Windows goes through the command interpreter on purpose. `where npx` reports the extensionless bash
+ * shim first, and neither spawn style can run that file directly: CreateProcess answers ENOENT, and
+ * recent Node builds answer EINVAL outright for the .cmd sibling. Routing the whole command through
+ * comspec lets cmd.exe apply its own lookup rules, which is the only invocation measured to work from
+ * inside the Obsidian process. Everything else spawns the file as given.
+ */
+function executableSpawn(file: string, args: string[], env?: NodeJS.ProcessEnv): { file: string; args: string[]; options: ExecFileOptions } {
+  if (process.platform === "win32" && file.trim().length > 0) {
+    const spec = process.env.ComSpec ?? "cmd.exe";
+    return { file: spec, args: ["/d", "/s", "/c", `"${[file, ...args].join(" ")}"`], options: { env } };
+  }
+  return { file, args, options: { env } };
+}
+
 const defaultExecFile: ExecFile = async (file, args, options) => {
   return promisify(execFileCallback)(file, args, options);
 };
@@ -119,11 +138,26 @@ export async function resolveNpxExecutable(execFile: ExecFile = defaultExecFile)
   for (const lookupArgs of npxLookupArgs()) {
     try {
       const lookupResult = await execFile(userShell(), lookupArgs, {});
-      const executable = stdoutFromExecResult(lookupResult).split(/\r?\n/).find((line) => line.trim())?.trim();
-      if (!executable) continue;
-      const env = envWithExecutablePath(executable);
-      await execFile(executable, ["--version"], { env });
-      return { file: executable, env };
+      const candidates = stdoutFromExecResult(lookupResult)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      // an executable extension first: on Windows the plain line is usually the bash shim, which no
+      // direct spawn can execute, while the .cmd sibling behind it is the real Windows program
+      const ordered = [
+        ...candidates.filter((candidate) => WINDOWS_EXECUTABLE_PATTERN.test(candidate)),
+        ...candidates.filter((candidate) => !WINDOWS_EXECUTABLE_PATTERN.test(candidate))
+      ];
+      for (const executable of ordered) {
+        try {
+          const env = envWithExecutablePath(executable);
+          const spawn = executableSpawn(executable, ["--version"], env);
+          await execFile(spawn.file, spawn.args, spawn.options);
+          return { file: executable, env };
+        } catch {
+          // Try the next candidate.
+        }
+      }
     } catch {
       // Try the next lookup mode.
     }
@@ -138,16 +172,14 @@ export async function runNpxSkillsAdd(command: string, cwd: string, execFile: Ex
 
   const stagingPath = await mkdtemp(join(cwd, ".skillhub-npx-import-"));
   try {
-    await execFile(npxExecutable.file, args, {
-      cwd: stagingPath,
-      env: {
-        ...process.env,
-        ...npxExecutable.env,
-        DO_NOT_TRACK: "1",
-        DISABLE_TELEMETRY: "1",
-        CI: "1"
-      }
+    const spawn = executableSpawn(npxExecutable.file, args, {
+      ...process.env,
+      ...npxExecutable.env,
+      DO_NOT_TRACK: "1",
+      DISABLE_TELEMETRY: "1",
+      CI: "1"
     });
+    await execFile(spawn.file, spawn.args, { ...spawn.options, cwd: stagingPath });
   } catch (error) {
     try {
       await rm(stagingPath, { force: true, recursive: true });
