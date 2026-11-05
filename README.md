@@ -1,10 +1,13 @@
 # Banshan Skill Hub
 
+> [!IMPORTANT]
+> **Skill Hub is now available through the Obsidian command line, so your agent can install skills for you.** Switch on **Enable Skill Hub command line actions** in the settings once, then say what you want in plain language: which skills you have, install one into a project, link one, what is installed there now, clear them out. The agent runs the `banshan-skillhub` actions through `obsidian` and reports what landed, so nothing has to be installed by hand from the sidebar. The prompts and the commands behind them are in [Ask An Agent To Do It](#ask-an-agent-to-do-it).
+
 Banshan Skill Hub is a desktop plugin for importing, organizing, and installing AI agent skills from a vault-managed library.
 
 Use it when you collect reusable agent skills from GitHub, local folders, or `npx skills add ...`, and want a visual place to manage them before installing selected skills into an agent workspace.
 
-The plugin can also be driven from a shell, without opening a window. Switching on **Enable Skill Hub command line actions** in the settings publishes the `banshan-skillhub` command to Obsidian's command line, where thirteen actions cover listing, search, install, link, uninstall, import, ordering, and settings. That means you can simply tell an agent what you want: ask which skills you have, or ask it to install a skill into a project, and the agent runs these commands and reports what landed. Scripts and CI jobs use the same surface. The [command line interface](#command-line-interface) section below lists the actions, the flags, the guardrails, and the prompts that map to commands.
+The plugin can also be driven from a shell, without opening a window. Switching on **Enable Skill Hub command line actions** in the settings publishes the `banshan-skillhub` command to Obsidian's command line, where thirteen actions cover listing, search, install, link, uninstall, import, ordering, and settings. Scripts and CI jobs use the same surface. The [command line interface](#command-line-interface) section below lists the actions, the flags, and the guardrails.
 
 ## Who It Is For
 
