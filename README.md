@@ -4,7 +4,7 @@ Banshan Skill Hub is a desktop plugin for importing, organizing, and installing 
 
 Use it when you collect reusable agent skills from GitHub, local folders, or `npx skills add ...`, and want a visual place to manage them before installing selected skills into an agent workspace.
 
-The plugin can also be driven from a shell, without opening a window. Switching on **Enable Skill Hub command line actions** in the settings publishes the `banshan-skillhub` command to Obsidian's command line, where thirteen actions cover listing, search, install, link, uninstall, import, ordering, and settings. Scripts, CI jobs, and agent CLIs can prepare a workspace and check what landed, and the [command line interface](#command-line-interface) section below lists the actions, the flags, and the guardrails.
+The plugin can also be driven from a shell, without opening a window. Switching on **Enable Skill Hub command line actions** in the settings publishes the `banshan-skillhub` command to Obsidian's command line, where thirteen actions cover listing, search, install, link, uninstall, import, ordering, and settings. That means you can simply tell an agent what you want: ask which skills you have, or ask it to install a skill into a project, and the agent runs these commands and reports what landed. Scripts and CI jobs use the same surface. The [command line interface](#command-line-interface) section below lists the actions, the flags, the guardrails, and the prompts that map to commands.
 
 ## Who It Is For
 
@@ -12,6 +12,7 @@ The plugin can also be driven from a shell, without opening a window. Switching 
 - Codex and agent users who frequently install skills into `.agents/skills`.
 - Skill authors who want to test, group, and reuse skill folders across projects.
 - Workflow builders who want curated collections of skills for coding, research, writing, debugging, or other recurring tasks.
+- People who would rather tell an agent what to install than click through a dialog, and agents that have to prepare a workspace without a window open.
 
 ## What It Can Do
 
@@ -127,6 +128,26 @@ A few rules hold across the whole interface:
 - `Enable Skill Hub command line actions` and `Enable npx execution` cannot be changed from the command line; they are switched on in settings so a person always grants those permissions.
 - A refused command prints a line starting with `ERROR:`; under `format=json` the object carries `ok: false` and a `message`.
 - The settings tab shows the two commands worth running first, filled in for the vault you have open, underneath the switch that enables them.
+
+#### Ask An Agent To Do It
+
+The actions were written for a person at a keyboard and for an agent in the same breath, so once the switches are on, a sentence is usually enough. These are the commands an agent ends up running for ordinary requests:
+
+| You say | The agent runs |
+| --- | --- |
+| "What skills do I have tagged research?" | `obsidian vault=MyVault banshan-skillhub:list tag=research` |
+| "What is actually inside find-skills?" | `obsidian banshan-skillhub:show skill=find-skills format=json` |
+| "Install grill-me and code-review into C:\work\agent, symlinked." | `obsidian banshan-skillhub:install skill=grill-me,code-review target=C:\work\agent method=symlink` |
+| "Import every skill from C:\work\skills." | `obsidian banshan-skillhub:import path=C:\work\skills` |
+| "What is installed in that workspace right now?" | `obsidian banshan-skillhub:info target=C:\work\agent` |
+| "Undo the installs Skill Hub made there." | `obsidian banshan-skillhub:uninstall target=C:\work\agent confirm=1` |
+
+Four things are worth putting in front of an agent before it starts:
+
+- Ask for `format=json` whenever the agent needs to read the answer rather than show it to you. The aligned tables are meant for people; the json object carries `ok`, `message`, and the rows.
+- Have it run `dryrun=1` and report its plan before a write you care about. `uninstall`, `order`, and `settings` additionally refuse without `confirm=1`, which is what stops an agent that misread a sentence from quietly emptying a workspace.
+- Every argument is a `key=value` pair, and a `vault=` selector goes before the command. A value containing `://` can be swallowed on the way to the plugin, so an agent that reports an empty argument should try `probe` and see what arrived.
+- An agent cannot turn on `Enable Skill Hub command line actions` or `Enable npx execution` for itself. Those two stay in the settings tab, so a person is always the one who grants them.
 
 ## How To Use
 
