@@ -3,6 +3,14 @@
 > [!IMPORTANT]
 > **Skill Hub is now available through the Obsidian command line, so your agent can install skills for you.** Switch on **Enable Skill Hub command line actions** in the settings once, then say what you want in plain language: which skills you have, install one into a project, link one, what is installed there now, clear them out. The agent runs the `banshan-skillhub` actions through `obsidian` and reports what landed, so nothing has to be installed by hand from the sidebar. The prompts and the commands behind them are in [Ask An Agent To Do It](#ask-an-agent-to-do-it).
 
+![The Skill Hub view with imported skills shown as blocks carrying emojis, tags, and colours](docs/images/plugin-view.gif)
+
+*The library in the sidebar: imported skills as blocks carrying emojis, tags, and colours.*
+
+![Listing, installing, and checking skills from a terminal through the Obsidian command line](docs/images/cli-view.gif)
+
+*The same library driven from a terminal: list, install, link, and the checks that show what landed.*
+
 Banshan Skill Hub is a desktop plugin for importing, organizing, and installing AI agent skills from a vault-managed library.
 
 Use it when you collect reusable agent skills from GitHub, local folders, or `npx skills add ...`, and want a visual place to manage them before installing selected skills into an agent workspace.
@@ -36,8 +44,6 @@ Automatic `npx` execution is controlled by plugin settings. When execution is di
 Imported skills are copied into the vault skill folder, which defaults to `Skill/` and can be changed in settings. If a folder name already exists, Skill Hub creates a collision-safe name instead of overwriting existing files.
 
 ### Manage Skills
-
-![The Skill Hub view with imported skills shown as blocks carrying emojis, tags, and colours](docs/images/plugin-view.gif)
 
 The Skill Hub view presents imported skills as visual blocks. You can:
 
@@ -87,8 +93,6 @@ Symlink creation depends on OS permissions. On Windows, Developer Mode or elevat
 ### Command Line Interface
 
 Turn on **Enable Skill Hub command line actions** in the Skill Hub settings (it ships switched off), with Obsidian's own **Settings -> General -> Command line interface** already enabled on the 1.13.0 or newer installer. The plugin then publishes its actions to the Obsidian command line, and every one of them runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
-
-![Listing, installing, and checking skills from a terminal through the Obsidian command line](docs/images/cli-view.gif)
 
 ```bash
 obsidian banshan-skillhub
