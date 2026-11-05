@@ -37,6 +37,8 @@ Imported skills are copied into the vault skill folder, which defaults to `Skill
 
 ### Manage Skills
 
+![The Skill Hub view with imported skills shown as blocks carrying emojis, tags, and colours](docs/images/plugin-view.gif)
+
 The Skill Hub view presents imported skills as visual blocks. You can:
 
 - Rename skills with a local nickname.
@@ -85,6 +87,8 @@ Symlink creation depends on OS permissions. On Windows, Developer Mode or elevat
 ### Command Line Interface
 
 Turn on **Enable Skill Hub command line actions** in the Skill Hub settings (it ships switched off), with Obsidian's own **Settings -> General -> Command line interface** already enabled on the 1.13.0 or newer installer. The plugin then publishes its actions to the Obsidian command line, and every one of them runs without opening a view or a modal, which is what scripts, CI jobs, and agent CLIs need.
+
+![Listing, installing, and checking skills from a terminal through the Obsidian command line](docs/images/cli-view.gif)
 
 ```bash
 obsidian banshan-skillhub
