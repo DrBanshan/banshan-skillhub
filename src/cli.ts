@@ -463,6 +463,9 @@ export function usageText(commands: readonly CliCommandDefinition[]): string {
   lines.push("");
   lines.push("Common flags: vault=<name|id>  json  format=text|json|tsv  dryrun=1  confirm=1");
   lines.push("Destructive actions refuse to run without confirm=1; dryrun=1 reports the plan without touching disk.");
+  lines.push("On Git Bash and MSYS, launching this as bare obsidian runs the Obsidian.com redirector through cmd,");
+  lines.push("which drops the arguments after a command name holding a colon: the client exits 127 with no output");
+  lines.push("and this plugin is never reached. Use cmd /c \"obsidian ...\", the full path to Obsidian.com, or PowerShell.");
   return lines.join("\n");
 }
 

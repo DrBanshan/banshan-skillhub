@@ -83,7 +83,9 @@ export class SkillHubSettingTab extends PluginSettingTab {
             + "To exercise every action at once, run test.cmd from a checkout of the plugin repository: it detects the vault, "
             + "or takes one as test.cmd vault=<folder>, and test.cmd --list shows the vaults Obsidian knows about. "
             + "The report is written under the temporary folder and the exit code is the number of checks that failed. "
-            + "The fields hold the lines ready to copy, for the vault you have open now.",
+            + "The fields hold the lines ready to copy, for the vault you have open now. "
+            + "Git Bash and MSYS lose the arguments that follow the colon in an action name, so the client exits 127 "
+            + "without reaching the plugin: wrap the line in cmd /c there, or call Obsidian.com by its full path.",
           render: (setting: Setting) => {
             for (const command of cliVerificationCommands(this.vaultNameForCli())) {
               setting.addText((field) => {

@@ -142,12 +142,34 @@ The actions were written for a person at a keyboard and for an agent in the same
 | "What is installed in that workspace right now?" | `obsidian banshan-skillhub:info target=C:\work\agent` |
 | "Undo the installs Skill Hub made there." | `obsidian banshan-skillhub:uninstall target=C:\work\agent confirm=1` |
 
-Four things are worth putting in front of an agent before it starts:
+Five things are worth putting in front of an agent before it starts:
 
 - Ask for `format=json` whenever the agent needs to read the answer rather than show it to you. The aligned tables are meant for people; the json object carries `ok`, `message`, and the rows.
 - Have it run `dryrun=1` and report its plan before a write you care about. `uninstall`, `order`, and `settings` additionally refuse without `confirm=1`, which is what stops an agent that misread a sentence from quietly emptying a workspace.
 - Every argument is a `key=value` pair, and a `vault=` selector goes before the command. A value containing `://` can be swallowed on the way to the plugin, so an agent that reports an empty argument should try `probe` and see what arrived.
+- An agent running from a bash-like shell on Windows gets a silent empty reply and exit code `127` for any action whose name carries a colon, before the plugin is involved. See [Running from Git Bash or MSYS](#running-from-git-bash-or-msys) for the two forms that work there.
 - An agent cannot turn on `Enable Skill Hub command line actions` or `Enable npx execution` for itself. Those two stay in the settings tab, so a person is always the one who grants them.
+
+#### Running From Git Bash Or MSYS
+
+On Windows, Obsidian's console entry point is `Obsidian.com`, a redirector that sits beside `Obsidian.exe` and wires up standard output. A bash-like shell finds it through `PATHEXT` and launches it through `cmd`, and that launch loses the arguments following a command name that contains a colon, which is the shape every action in this plugin has. The client exits `127` and prints nothing at all: no `ERROR:` line, no json object, because the plugin was never called. The same command with no arguments answers normally, which makes it look like the plugin stopped responding to anything parameterised.
+
+| Shell | `banshan-skillhub:list filter=skill` |
+| --- | --- |
+| PowerShell | answers |
+| `cmd.exe` | answers |
+| Git Bash, bare `obsidian` | exits `127`, no output |
+| Git Bash, wrapped in `cmd //c` | answers |
+| Git Bash, full path to `Obsidian.com` | answers |
+
+The two forms that work from a bash-like shell:
+
+```shell
+cmd //c "obsidian vault=MyVault banshan-skillhub:list filter=skill"
+"$LOCALAPPDATA/Programs/Obsidian/Obsidian.com" vault=MyVault banshan-skillhub:list filter=skill
+```
+
+Actions with no arguments are unaffected, so `obsidian vault=MyVault banshan-skillhub:info` answers from Git Bash, and built-in Obsidian commands whose name has no colon answer with their parameters intact. An agent that reports an empty reply with exit `127` has hit the launcher rather than failed the action, and running the same line through `cmd //c` settles it. The `test.cmd` harness runs under `cmd`, so it is never affected.
 
 ## How To Use
 

@@ -338,6 +338,9 @@ function usageText(commands) {
   lines.push("");
   lines.push("Common flags: vault=<name|id>  json  format=text|json|tsv  dryrun=1  confirm=1");
   lines.push("Destructive actions refuse to run without confirm=1; dryrun=1 reports the plan without touching disk.");
+  lines.push("On Git Bash and MSYS, launching this as bare obsidian runs the Obsidian.com redirector through cmd,");
+  lines.push("which drops the arguments after a command name holding a colon: the client exits 127 with no output");
+  lines.push('and this plugin is never reached. Use cmd /c "obsidian ...", the full path to Obsidian.com, or PowerShell.');
   return lines.join("\n");
 }
 function createCliHandler(definition, bridge, commands) {
@@ -1742,7 +1745,7 @@ var SkillHubSettingTab = class extends import_obsidian.PluginSettingTab {
         },
         {
           name: "Check the actions from a terminal",
-          desc: "Name the vault before the command, because the client reads a vault first and then the command. Run the lines below from anywhere, with Obsidian open and this vault loaded, and the plugin answers in the terminal. To exercise every action at once, run test.cmd from a checkout of the plugin repository: it detects the vault, or takes one as test.cmd vault=<folder>, and test.cmd --list shows the vaults Obsidian knows about. The report is written under the temporary folder and the exit code is the number of checks that failed. The fields hold the lines ready to copy, for the vault you have open now.",
+          desc: "Name the vault before the command, because the client reads a vault first and then the command. Run the lines below from anywhere, with Obsidian open and this vault loaded, and the plugin answers in the terminal. To exercise every action at once, run test.cmd from a checkout of the plugin repository: it detects the vault, or takes one as test.cmd vault=<folder>, and test.cmd --list shows the vaults Obsidian knows about. The report is written under the temporary folder and the exit code is the number of checks that failed. The fields hold the lines ready to copy, for the vault you have open now. Git Bash and MSYS lose the arguments that follow the colon in an action name, so the client exits 127 without reaching the plugin: wrap the line in cmd /c there, or call Obsidian.com by its full path.",
           render: (setting) => {
             for (const command of cliVerificationCommands(this.vaultNameForCli())) {
               setting.addText((field) => {
